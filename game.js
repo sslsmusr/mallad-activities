@@ -21,6 +21,23 @@ let snickerBuffer = null;
 let jingleBuffer = null;
 let bgmBuffer = null;
 let bgmSource = null; // To track and update the playing BGM
+let somberBuffer = null;
+let cheerfulBuffer = null;
+let cheerfulSource = null;
+let deathTextLines = [];
+let winTextLines = [];
+let winTimer = 0;
+
+// Fetch game over text
+fetch('death_text.txt')
+    .then(r => r.text())
+    .then(text => { deathTextLines = text.split('\n'); })
+    .catch(e => console.error('Error loading death text', e));
+
+fetch('win_text.txt')
+    .then(r => r.text())
+    .then(text => { winTextLines = text.split('\n'); })
+    .catch(e => console.error('Error loading win text', e));
 
 // Fetch and load the generated retro quack
 fetch('quack.wav')
@@ -53,16 +70,30 @@ fetch('balkan_loop.wav')
     .then(buffer => { bgmBuffer = buffer; })
     .catch(e => console.error('Error loading balkan loop:', e));
 
-function playSound(buffer, volume = 1.0) {
-    if (!buffer) return;
+fetch('somber.wav')
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { somberBuffer = buffer; })
+    .catch(e => console.error('Error loading somber melody:', e));
+
+fetch('cheerful.wav')
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { cheerfulBuffer = buffer; })
+    .catch(e => console.error('Error loading cheerful melody:', e));
+
+function playSound(buffer, volume = 1.0, loop = false) {
+    if (!buffer) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const source = audioCtx.createBufferSource();
     const gainNode = audioCtx.createGain();
     gainNode.gain.value = volume;
     source.buffer = buffer;
+    source.loop = loop;
     source.connect(gainNode);
     gainNode.connect(audioCtx.destination);
     source.start(0);
+    return source;
 }
 
 function startBGM(level) {
@@ -138,15 +169,24 @@ let gameState = {
     killCount: 0,
     sessionKills: 0, // Kills in current round to track extra bullets
     ammo: 5,
+    lives: 5,
     round: 1,
     ducks: [],
     projectiles: [], // Store flying projectiles
+    buildings: [],
+    airplanes: [],
+    tigers: [],
+    tigersKilled: 0,
+    airplanesKilled: 0,
+    lastAirplaneTime: 0,
     lastTime: 0,
     phase: 'START',
     timer: 0,
     dogQuote: '',
     dogPlayedSound: false,
     escapedThisRound: 0, // Tracks ducks that flew away
+    portraitClicks: 0,
+    baldUntil: 0,
     perfectRounds: 0, // Count of flawless rounds
     sunClicks: 0,
     infiniteAmmo: false
@@ -190,6 +230,12 @@ class Duck {
         // Speed up the ducks for each level (+10% per level)
         // If it's a splitting duck, slow it down to 30% speed
         this.speedMult = 1 + (this.level - 1) * 0.1;
+        
+        // After level 40, increase speed by 1% each round
+        if (gameState.round > 40) {
+            this.speedMult *= Math.pow(1.01, gameState.round - 40);
+        }
+
         if (isSplit) {
             this.speedMult *= 0.3; 
         }
@@ -292,13 +338,175 @@ class Duck {
     }
 }
 
+class Airplane {
+    constructor() {
+        this.width = 60;
+        this.height = 30;
+        this.x = Math.random() > 0.5 ? -this.width : canvas.width;
+        this.y = 50 + Math.random() * (canvas.height * 0.4); // Random high height
+        this.vx = (this.x < 0 ? 1 : -1) * (80 + Math.random() * 40); // fly across screen
+        this.isDead = false;
+        this.particles = null;
+    }
+    
+    update(dt) {
+        if (!this.isDead) {
+            this.x += this.vx * dt;
+        } else {
+            if (this.particles) {
+                let allDead = true;
+                this.particles.forEach(p => {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.life -= dt;
+                    if (p.life > 0) allDead = false;
+                });
+                if (allDead) {
+                    this.y = 9999;
+                }
+            } else {
+                this.y = 9999;
+            }
+        }
+    }
+    
+    draw(ctx) {
+        if (this.isDead) {
+            if (this.particles) {
+                this.particles.forEach(p => {
+                    if (p.life > 0) {
+                        ctx.fillStyle = p.color;
+                        ctx.globalAlpha = Math.max(0, p.life);
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                ctx.globalAlpha = 1.0;
+            }
+            return;
+        }
+        
+        ctx.save();
+        ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+        if (this.vx < 0) {
+            ctx.scale(-1, 1); // Flip if flying right to left
+        }
+        
+        let pSize = 3;
+        
+        // Draw Banner Line
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-this.width/2 - 40, 5, 40, 2);
+        
+        // Draw White K Banner
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-this.width/2 - 80, -10, 40, 30);
+        ctx.fillStyle = '#4caf50'; // Green K
+        ctx.font = "bold 24px 'Courier New', Courier, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("K", -this.width/2 - 60, 5);
+        
+        // Draw simple plane body
+        ctx.fillStyle = '#ccc';
+        ctx.fillRect(-this.width/2, -5, this.width, 14); // fuselage
+        ctx.fillStyle = '#f44336'; // red tail
+        ctx.fillRect(-this.width/2, -15, 10, 10);
+        ctx.fillStyle = '#90caf9'; // window
+        ctx.fillRect(this.width/2 - 15, -5, 10, 8);
+        ctx.fillStyle = '#333'; // prop
+        if (Math.floor(performance.now() / 50) % 2 === 0) {
+            ctx.fillRect(this.width/2, -10, 2, 24);
+        }
+        
+        ctx.restore();
+    }
+}
+
+class Tiger {
+    constructor(x, y, duckSpeed) {
+        this.width = 40;
+        this.height = 40;
+        this.x = x;
+        this.y = y;
+        this.vy = Math.abs(duckSpeed) * 0.1; // Falls at 10% of duck's speed
+        this.isDead = false;
+        this.particles = null;
+    }
+    
+    update(dt) {
+        if (!this.isDead) {
+            this.y += this.vy * dt;
+        } else {
+            if (this.particles) {
+                let allDead = true;
+                this.particles.forEach(p => {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.life -= dt;
+                    if (p.life > 0) allDead = false;
+                });
+                if (allDead) {
+                    this.y = 9999;
+                }
+            } else {
+                this.y = 9999;
+            }
+        }
+    }
+    
+    draw(ctx) {
+        if (this.isDead) {
+            if (this.particles) {
+                this.particles.forEach(p => {
+                    if (p.life > 0) {
+                        ctx.fillStyle = p.color;
+                        ctx.globalAlpha = Math.max(0, p.life);
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                ctx.globalAlpha = 1.0;
+            }
+            return;
+        }
+        
+        ctx.save();
+        ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+        
+        let p = 4;
+        ctx.fillStyle = '#ff9800'; // Orange base
+        ctx.fillRect(-4*p, -3*p, 8*p, 6*p); // head
+        
+        ctx.fillStyle = '#000'; // stripes
+        ctx.fillRect(-4*p, -3*p, 2*p, p);
+        ctx.fillRect(2*p, -3*p, 2*p, p);
+        ctx.fillRect(-2*p, -p, 4*p, p);
+        
+        ctx.fillStyle = '#fff'; // eyes
+        ctx.fillRect(-3*p, 0, p, p);
+        ctx.fillRect(2*p, 0, p, p);
+        
+        ctx.fillStyle = '#000'; // pupils
+        ctx.fillRect(-2*p, 0, p*.5, p);
+        ctx.fillRect(2.5*p, 0, p*.5, p);
+        
+        ctx.fillStyle = '#fff'; // muzzle
+        ctx.fillRect(-2*p, 2*p, 4*p, 2*p);
+        ctx.fillStyle = '#f44336'; // nose
+        ctx.fillRect(-p, 2*p, 2*p, p);
+        
+        ctx.restore();
+    }
+}
+
 class Projectile {
-    constructor(startX, startY, targetX, targetY, targetDuck, hitSun) {
+    constructor(startX, startY, targetX, targetY, targetDuck, hitSun, targetAirplane = null, targetTiger = null) {
         this.startX = startX;
         this.startY = startY;
         this.targetX = targetX;
         this.targetY = targetY;
         this.targetDuck = targetDuck;
+        this.targetAirplane = targetAirplane;
+        this.targetTiger = targetTiger;
         this.hitSun = hitSun;
         this.timeElapsed = 0;
         this.timeTotal = 0.1; // 100ms flight time
@@ -333,7 +541,7 @@ class Projectile {
     }
 
     impact() {
-        if (this.hitSun || (this.targetDuck && !this.targetDuck.isDead)) {
+        if (this.hitSun || (this.targetDuck && !this.targetDuck.isDead) || (this.targetAirplane && !this.targetAirplane.isDead) || (this.targetTiger && !this.targetTiger.isDead)) {
             flashScreen(); // Impact flash ONLY on hits!
         }
         
@@ -383,8 +591,66 @@ class Projectile {
                 gameState.ammo++; // Extra bullet for shooting a splitting duck!
             }
             
+            // Tiger drop object with 30% chance for levels > 3
+            if (duck.level > 3 && Math.random() < 0.3) {
+                // Determine duck falling speed magnitude
+                let duckSpeed = Math.hypot(duck.vx, duck.vy);
+                gameState.tigers.push(new Tiger(duck.x, duck.y, duckSpeed));
+            }
+            
             updateUI();
-        } else if (!this.hitSun && !this.targetDuck) {
+        } else if (this.targetAirplane && !this.targetAirplane.isDead) { // Airplane Hit!
+            playSound(wompBuffer);
+            this.targetAirplane.isDead = true;
+            gameState.ammo += 5; // Reward
+            gameState.airplanesKilled++;
+            
+            if (gameState.round >= 30) {
+                // 50% chance to restore a life if below the maximum of 5
+                if (Math.random() < 0.5 && gameState.lives < 5) {
+                    gameState.lives++;
+                    playSound(jingleBuffer, 0.8);
+                }
+            }
+            
+            updateUI();
+            
+            let particles = [];
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x: this.targetAirplane.x + this.targetAirplane.width / 2,
+                    y: this.targetAirplane.y + this.targetAirplane.height / 2,
+                    vx: (Math.random() - 0.5) * 200,
+                    vy: (Math.random() - 0.5) * 200,
+                    size: 4 + Math.random() * 6,
+                    life: 0.3 + Math.random() * 0.3,
+                    color: ['#ccc', '#f44336', '#ffeb3b'][Math.floor(Math.random() * 3)]
+                });
+            }
+            this.targetAirplane.particles = particles;
+            
+        } else if (this.targetTiger && !this.targetTiger.isDead) { // Tiger Hit!
+            playSound(snickerBuffer); // play funny sound
+            this.targetTiger.isDead = true;
+            gameState.score += 1000;
+            gameState.tigersKilled++;
+            updateUI();
+            
+            let particles = [];
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x: this.targetTiger.x + this.targetTiger.width / 2,
+                    y: this.targetTiger.y + this.targetTiger.height / 2,
+                    vx: (Math.random() - 0.5) * 200,
+                    vy: (Math.random() - 0.5) * 200,
+                    size: 4 + Math.random() * 6,
+                    life: 0.3 + Math.random() * 0.3,
+                    color: ['#ff9800', '#000000', '#ffffff'][Math.floor(Math.random() * 3)]
+                });
+            }
+            this.targetTiger.particles = particles;
+
+        } else if (!this.hitSun && !this.targetDuck && !this.targetAirplane && !this.targetTiger) {
             // Missed everything (Puff of purple smoke)
             this.particles = [];
             for (let p = 0; p < 15; p++) {
@@ -424,12 +690,18 @@ class Projectile {
         let targetX = this.targetX;
         let targetY = this.targetY;
         
-        // Dynamically track flying duck if targeted
+        // Dynamically track flying duck/plane/tiger if targeted
         if (this.targetDuck && !this.targetDuck.isDead) {
             targetX = this.targetDuck.x + this.targetDuck.width / 2;
             targetY = this.targetDuck.y + this.targetDuck.height / 2;
+        } else if (this.targetAirplane && !this.targetAirplane.isDead) {
+            targetX = this.targetAirplane.x + this.targetAirplane.width / 2;
+            targetY = this.targetAirplane.y + this.targetAirplane.height / 2;
+        } else if (this.targetTiger && !this.targetTiger.isDead) {
+            targetX = this.targetTiger.x + this.targetTiger.width / 2;
+            targetY = this.targetTiger.y + this.targetTiger.height / 2;
         }
-
+        
         let currentX = this.startX + (targetX - this.startX) * t;
         let currentY = this.startY + (targetY - this.startY) * t;
         
@@ -476,7 +748,7 @@ canvas.addEventListener('touchmove', (e) => {
 
 // Input Handling (Touch and Click)
 function handleShoot(event) {
-    if (gameState.phase === 'START') return; // Don't allow shooting during start screen
+    if (gameState.phase === 'START' || gameState.phase === 'GAME_OVER' || gameState.phase === 'WIN') return; // Don't allow shooting during these phases
 
     const now = performance.now();
     if (now - lastShotTime < 100) return; // Prevent double-fire from overlapping events
@@ -496,8 +768,20 @@ function handleShoot(event) {
         y = event.clientY - rect.top;
     }
 
+    // Portrait hack: 13 clicks triggers win
+    let hackBoxY = canvas.height - 85 - 15 * 4 - 20; 
+    if (x >= 10 && x <= 10 + 16 * 4 + 20 && y >= hackBoxY && y <= hackBoxY + 15 * 4 + 20) {
+        gameState.portraitClicks++;
+        if (gameState.portraitClicks >= 13) {
+            triggerWin();
+            return;
+        }
+    }
+
     // Check for hit targets (Evaluate immediately, impact logic is deferred)
     let hitDuck = null;
+    let hitAirplane = null;
+    let hitTiger = null;
     let hitSun = false;
     
     // Check for Easter Egg: Clicking the Sun
@@ -508,15 +792,57 @@ function handleShoot(event) {
     }
 
     if (!hitSun) {
-        for (let i = gameState.ducks.length - 1; i >= 0; i--) {
-            const duck = gameState.ducks[i];
-            if (!duck.isDead && !duck.isTargeted &&
-                x >= duck.x && x <= duck.x + duck.width &&
-                y >= duck.y && y <= duck.y + duck.height) {
-                
-                hitDuck = duck;
-                duck.isTargeted = true; // Mark targeted so it isn't hit by multiple projectiles
-                break; 
+        // Check tigers first (most immediate threat since they fall)
+        for (let i = gameState.tigers.length - 1; i >= 0; i--) {
+            const tiger = gameState.tigers[i];
+            if (!tiger.isDead && Math.abs(x - (tiger.x + tiger.width/2)) <= 30 &&
+                Math.abs(y - (tiger.y + tiger.height/2)) <= 30) {
+                hitTiger = tiger;
+                break;
+            }
+        }
+        
+        // Check ducks if no tiger hit
+        if (!hitTiger) {
+            for (let i = gameState.ducks.length - 1; i >= 0; i--) {
+                const duck = gameState.ducks[i];
+                if (!duck.isDead && !duck.isTargeted &&
+                    x >= duck.x && x <= duck.x + duck.width &&
+                    y >= duck.y && y <= duck.y + duck.height) {
+                    
+                    hitDuck = duck;
+                    duck.isTargeted = true; // Mark targeted so it isn't hit by multiple projectiles
+                    break; 
+                }
+            }
+        }
+        
+        // If duck/tiger wasn't hit, check airplanes
+        if (!hitDuck && !hitTiger) {
+            for (let i = gameState.airplanes.length - 1; i >= 0; i--) {
+                const plane = gameState.airplanes[i];
+                // Hitbox includes banner (using approx coords)
+                if (!plane.isDead &&
+                    x >= plane.x - 80 && x <= plane.x + plane.width &&
+                    y >= plane.y - 15 && y <= plane.y + plane.height + 15) {
+                    
+                    hitAirplane = plane;
+                    break;
+                }
+            }
+        }
+        
+        // If nothing was hit in the sky, check if a building was shot
+        if (!hitDuck && !hitTiger && !hitAirplane) {
+            let grassLevel = canvas.height - (canvas.height * 0.12);
+            for (let i = gameState.buildings.length - 1; i >= 0; i--) {
+                const b = gameState.buildings[i];
+                let bY = Math.floor(grassLevel - b.height + 5);
+                if (x >= b.x && x <= b.x + b.width && y >= bY && y <= bY + b.height) {
+                    // Turn player bald for 2 seconds
+                    gameState.baldUntil = performance.now() + 2000;
+                    break;
+                }
             }
         }
     }
@@ -539,12 +865,51 @@ function handleShoot(event) {
     let startX = gunX + muzzleLocalX * Math.cos(currentAimAngle) - muzzleLocalY * Math.sin(currentAimAngle);
     let startY = gunY + muzzleLocalX * Math.sin(currentAimAngle) + muzzleLocalY * Math.cos(currentAimAngle);
 
-    gameState.projectiles.push(new Projectile(startX, startY, x, y, hitDuck, hitSun));
+    gameState.projectiles.push(new Projectile(startX, startY, x, y, hitDuck, hitSun, hitAirplane, hitTiger));
 
     if (!gameState.infiniteAmmo) {
         gameState.ammo--;
     }
     updateUI();
+}
+
+let gameOverTimer = 0;
+let somberSource = null;
+
+function triggerGameOver() {
+    gameState.phase = 'GAME_OVER';
+    gameOverTimer = performance.now();
+    if (bgmSource) {
+        bgmSource.stop();
+        bgmSource.disconnect();
+        bgmSource = null;
+    }
+    somberSource = playSound(somberBuffer, 0.8, true);
+    
+    // Delay displaying reset button by 2 seconds to absorb the impact
+    setTimeout(() => {
+        if (gameState.phase === 'GAME_OVER') {
+            document.getElementById('reset-btn').style.display = 'block';
+        }
+    }, 2000);
+}
+
+function triggerWin() {
+    gameState.phase = 'WIN';
+    winTimer = performance.now();
+    if (bgmSource) {
+        bgmSource.stop();
+        bgmSource.disconnect();
+        bgmSource = null;
+    }
+    cheerfulSource = playSound(cheerfulBuffer, 0.8, true);
+    
+    // Delay displaying reset button by 4 seconds
+    setTimeout(() => {
+        if (gameState.phase === 'WIN') {
+            document.getElementById('reset-btn').style.display = 'block';
+        }
+    }, 4000);
 }
 
 canvas.addEventListener('mousedown', handleShoot);
@@ -573,11 +938,75 @@ function updateUI() {
             ammoDisplay.appendChild(bullet);
         }
     }
+    
+    // Update lives
+    const livesDisplay = document.getElementById('lives-display');
+    livesDisplay.innerHTML = '';
+    for (let i = 0; i < gameState.lives; i++) {
+        const heart = document.createElement('div');
+        heart.className = 'heart';
+        livesDisplay.appendChild(heart);
+    }
 }
 
 let flashFrames = 0;
 function flashScreen() {
     flashFrames = 3; // Flash for 3 frames
+}
+
+function spawnBuildings(roundNum) {
+    if (!gameState.buildings) gameState.buildings = [];
+    
+    // 1 hut every round in random color
+    let hutObj = {
+        type: 'hut',
+        width: 30 + Math.random() * 20,
+        height: 20 + Math.random() * 20,
+        color: `hsl(${Math.floor(Math.random()*360)}, 70%, 50%)`,
+        roofColor: '#2b1b17',
+        windows: 1 + Math.floor(Math.random() * 2)
+    };
+    hutObj.x = Math.random() * (canvas.width - hutObj.width);
+    gameState.buildings.push(hutObj);
+
+    // 1 tower every 10 levels
+    if (roundNum % 10 === 0) {
+        let tW = 30 + Math.random() * 20;
+        let tH = 120 + Math.random() * 80;
+        let tX = Math.random() * (canvas.width - tW);
+        let litLights = [];
+        for (let wy = 10; wy < tH - 10; wy += 20) {
+            if (Math.random() > 0.3) litLights.push(wy);
+        }
+        let towerObj = {
+            type: 'tower', width: tW, height: tH, x: tX,
+            color: `#${Math.floor(Math.random()*3+3)}${Math.floor(Math.random()*3+3)}${Math.floor(Math.random()*3+3)}`,
+            litLights: litLights
+        };
+        gameState.buildings.push(towerObj);
+    }
+
+    // 1 apartment every 20 levels
+    if (roundNum % 20 === 0) {
+        let aW = 80 + Math.random() * 40;
+        let aH = 100 + Math.random() * 60;
+        let aX = Math.random() * (canvas.width - aW);
+        let cols = Math.floor(aW / 15);
+        let litGrid = [];
+        for (let wy = 10; wy < aH - 10; wy += 20) {
+            let row = [];
+            for (let wx = 0; wx < cols; wx++) {
+                if (Math.random() > 0.4) row.push(wx);
+            }
+            litGrid.push({y: wy, xList: row});
+        }
+        let aptObj = {
+            type: 'apt', width: aW, height: aH, x: aX,
+            color: '#4e342e',
+            litGrid: litGrid
+        };
+        gameState.buildings.push(aptObj);
+    }
 }
 
 // Game Loop
@@ -589,8 +1018,11 @@ function gameLoop(timestamp) {
 
     let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
 
-    // Always Sky blue, revert the redness
-    ctx.fillStyle = '#64b5f6'; 
+    // Sky blue, darkens based on level
+    let skyL = 68; // 68% lightness
+    if (gameState.round >= 60) skyL -= 20; // Darken by total 20%
+    else if (gameState.round >= 30) skyL -= 10; // Darken by 10%
+    ctx.fillStyle = `hsl(207, 90%, ${skyL}%)`; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw Sun at Level >= 4
@@ -704,15 +1136,46 @@ function gameLoop(timestamp) {
     for (let c = 0; c < numClouds; c++) {
         // Pseudo-random position based on cloud index, slowly moving right
         let startX = c * 137;
-        let speed = 20 + (c % 3) * 10;
+        let speedMult = 1.0 + (Math.sin(c * 123.45) * 0.2); // +/- 20%
+        let sizeMult = 1.0 + (Math.cos(c * 321.12) * 0.2); // +/- 20%
+        
+        let speed = (20 + (c % 3) * 10) * speedMult;
         let cx = ((startX + timestamp / 1000 * speed) % (canvas.width + 120)) - 60;
         let cy = 20 + (c * 47) % (canvas.height * 0.6); 
         
+        ctx.save();
+        ctx.translate(cx + 20, cy + 10);
+        ctx.scale(sizeMult, sizeMult);
+        
         // Simple 8-bit cloud shape
-        ctx.fillRect(cx, cy, 40, 20);
-        ctx.fillRect(cx - 10, cy + 10, 60, 10);
-        ctx.fillRect(cx + 10, cy - 10, 20, 10);
+        ctx.fillRect(-20, -10, 40, 20);
+        ctx.fillRect(-30, 0, 60, 10);
+        ctx.fillRect(-10, -20, 20, 10);
+        
+        ctx.restore();
     }
+    
+    // Airplane Logic: Check every 10s roughly, increasing chance
+    if (gameState.phase === 'PLAY' && timestamp - gameState.lastAirplaneTime > 10000) {
+        gameState.lastAirplaneTime = timestamp;
+        
+        // Base 1% chance, plus 5% for every 20 rounds
+        let baseChance = 0.01;
+        let chanceBonus = Math.floor((gameState.round - 1) / 20) * 0.05;
+        let spawnChance = Math.min(1.0, baseChance + chanceBonus);
+        
+        if (Math.random() < spawnChance) {
+            gameState.airplanes.push(new Airplane());
+        }
+    }
+    
+    // Update & Draw Airplanes
+    gameState.airplanes.forEach(plane => {
+        plane.update(dt);
+        plane.draw(ctx);
+    });
+    // Filter out dead/offscreen planes
+    gameState.airplanes = gameState.airplanes.filter(p => p.y < 1000 && p.x > -200 && p.x < canvas.width + 200);
 
     // Update & Draw Ducks
     gameState.ducks.forEach(duck => {
@@ -725,13 +1188,36 @@ function gameLoop(timestamp) {
         // If duck flies off the top of the canvas, it escaped!
         if (!duck.isDead && duck.y < -150) {
             gameState.escapedThisRound++;
+            gameState.lives--;
+            updateUI();
+            
+            if (gameState.lives <= 0 && gameState.phase !== 'GAME_OVER') {
+                triggerGameOver();
+            }
             return false;
         }
         return duck.y < canvas.height + 100 && duck.y > -200;
     });
 
+    // Update & Draw Tigers
+    gameState.tigers.forEach(tiger => {
+        tiger.update(dt);
+        tiger.draw(ctx);
+    });
+    // Check Tigers touching bottom (grass level approx)
+    gameState.tigers = gameState.tigers.filter(tiger => {
+        if (!tiger.isDead && tiger.y > canvas.height - canvas.height * 0.12) { 
+            gameState.score -= 5000;
+            playSound(wompBuffer);
+            flashScreen();
+            updateUI();
+            return false;
+        }
+        return tiger.y < canvas.height + 100 && tiger.y > -200;
+    });
+
     // Auto-start BGM mid-game if it finishes loading late
-    if (!bgmSource && bgmBuffer && gameState.phase !== 'START') {
+    if (!bgmSource && bgmBuffer && gameState.phase !== 'START' && gameState.phase !== 'GAME_OVER' && gameState.phase !== 'WIN') {
         let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
         startBGM(currentLevel);
     }
@@ -740,7 +1226,14 @@ function gameLoop(timestamp) {
     if (gameState.phase === 'SPAWN') {
         gameState.ducks.push(new Duck());
         gameState.ducks.push(new Duck());
-        gameState.ammo = 5;
+        
+        // Spawn a level 2 duck for every 10 rounds passed
+        let bonusDucks = Math.floor(gameState.round / 10);
+        for (let i = 0; i < bonusDucks; i++) {
+            gameState.ducks.push(new Duck(2));
+        }
+        
+        gameState.ammo = 5 + (bonusDucks * 2); // Ensure we don't immediately run out of bullets with swarms
         gameState.sessionKills = 0; // Reset consecutive kills per round
         gameState.escapedThisRound = 0; // Reset escaping penalization
         updateUI();
@@ -840,10 +1333,184 @@ function gameLoop(timestamp) {
         }
         
         if (gameState.timer <= 0) {
-            gameState.phase = 'SPAWN';
-            gameState.round++;
-            document.getElementById('round-display').innerText = 'R=' + gameState.round;
+            if (gameState.round >= 80) {
+                triggerWin();
+            } else {
+                gameState.phase = 'SPAWN';
+                gameState.round++;
+                spawnBuildings(gameState.round);
+                document.getElementById('round-display').innerText = 'R=' + gameState.round;
+            }
         }
+    } else if (gameState.phase === 'GAME_OVER') {
+        // Draw black screen and scrolling text
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 18px 'Courier New', Courier, monospace";
+        
+        let elapsed = (performance.now() - gameOverTimer) / 1000;
+        let scrollY = canvas.height - elapsed * 30; // pixels per second
+        
+        for (let i = 0; i < deathTextLines.length; i++) {
+            ctx.fillText(deathTextLines[i], canvas.width / 2, scrollY + i * 35);
+        }
+        
+        requestAnimationFrame(gameLoop);
+        return; // Don't draw UI or grass
+    } else if (gameState.phase === 'WIN') {
+        // Pixel-art city with golden towers background
+        ctx.fillStyle = "#000022"; // Dark night sky
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "#FFF"; // Stars
+        for (let i = 0; i < 50; i++) {
+            let sx = (i * 73) % canvas.width;
+            let sy = (i * 137) % (canvas.height * 0.7);
+            ctx.fillRect(sx, sy, 2, 2);
+        }
+        
+        // City Skyline with Golden Towers
+        let numTowers = Math.ceil(canvas.width / 40);
+        for(let i = 0; i < numTowers; i++) {
+            let tW = 30 + (i * 17) % 30; // Width: 30 to 60
+            let tH = 100 + (i * 53) % 250; // Height: 100 to 350
+            let tX = i * 40;
+            let tY = canvas.height - tH;
+            
+            if (i % 3 === 0) {
+                // Golden Tower
+                ctx.fillStyle = "#DAA520"; // Base gold
+                ctx.fillRect(tX, tY, tW, tH);
+                ctx.fillStyle = "#FFD700"; // Bright Highlights
+                ctx.fillRect(tX, tY, 5, tH);
+                ctx.fillStyle = "#B8860B"; // Dark Shadows
+                ctx.fillRect(tX + tW - 5, tY, 5, tH);
+                // Golden tower windows (white/bright)
+                ctx.fillStyle = "#FFFFFF";
+                for(let wy = tY + 20; wy < canvas.height - 20; wy += 30) {
+                    ctx.fillRect(tX + 10, wy, 8, 12);
+                }
+            } else {
+                // Silhouette Tower
+                ctx.fillStyle = "#111111";
+                ctx.fillRect(tX, tY, tW, tH);
+                ctx.fillStyle = "#222222";
+                ctx.fillRect(tX, tY, 5, tH);
+                // Lit windows
+                ctx.fillStyle = "#ffeb3b";
+                for(let wy = tY + 15; wy < canvas.height - 10; wy += 25) {
+                    if ((i + wy) % 5 !== 0) { // random unlit ones
+                        ctx.fillRect(tX + 10, wy, 8, 12);
+                        if (tW > 35) {
+                            ctx.fillRect(tX + 25, wy, 8, 12);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Draw golden scrolling text
+        ctx.fillStyle = "#FFD700"; // Golden Color
+        ctx.shadowColor = "#FF8C00";
+        ctx.shadowBlur = 10;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 20px 'Courier New', Courier, monospace"; // Reduced from 22px
+        
+        // Inset text logic (prevent it from being flush with the edges)
+        let maxTextWidth = canvas.width - 40; 
+        
+        let elapsed = (performance.now() - winTimer) / 1000;
+        let scrollY = canvas.height - elapsed * 30; // pixels per second
+        
+        for (let i = 0; i < winTextLines.length; i++) {
+            ctx.fillText(winTextLines[i], canvas.width / 2, scrollY + i * 35, maxTextWidth);
+        }
+        
+        ctx.shadowBlur = 0; // reset
+        
+        // Show plaque when text passes top
+        let lastLineY = scrollY + winTextLines.length * 35;
+        if (lastLineY < -50) {
+            let pW = 340; let pH = 240;
+            let pX = canvas.width / 2 - pW / 2;
+            let pY = canvas.height / 2 - pH / 2;
+            
+            ctx.fillStyle = "#3E2723"; // Dark brown wood
+            ctx.fillRect(pX, pY, pW, pH);
+            ctx.strokeStyle = "#FFD700"; // Gold border
+            ctx.lineWidth = 4;
+            ctx.strokeRect(pX, pY, pW, pH);
+            
+            ctx.fillStyle = "#FFD700";
+            ctx.shadowColor = "#FF8C00";
+            ctx.shadowBlur = 5;
+            ctx.font = "bold 26px 'Courier New', Courier, monospace";
+            ctx.fillText("VICTORY!", canvas.width / 2, pY + 40);
+            
+            ctx.shadowBlur = 0;
+            ctx.font = "bold 18px 'Courier New', Courier, monospace";
+            ctx.fillText(`SCORE: ${gameState.score}`, canvas.width / 2, pY + 90);
+            ctx.fillText(`DUCKS DOWNED: ${gameState.killCount}`, canvas.width / 2, pY + 130);
+            ctx.fillText(`TIGERS HUNTED: ${gameState.tigersKilled}`, canvas.width / 2, pY + 170);
+            ctx.fillText(`AIRPLANES SHOT: ${gameState.airplanesKilled}`, canvas.width / 2, pY + 210);
+        }
+        
+        requestAnimationFrame(gameLoop);
+        return; // Don't draw UI or grass
+    }
+
+    // Draw background buildings (skyline) before grass
+    let grassLevel = canvas.height - (canvas.height * 0.12);
+    if (gameState.buildings) {
+        gameState.buildings.forEach(b => {
+            let bY = Math.floor(grassLevel - b.height + 5); // Sink slightly into grass
+            ctx.fillStyle = b.color;
+            ctx.fillRect(b.x, bY, b.width, b.height);
+            
+            // Draw details based on building type
+            if (b.type === 'hut') {
+                // roof
+                ctx.fillStyle = b.roofColor;
+                ctx.beginPath();
+                ctx.moveTo(b.x - 5, bY);
+                ctx.lineTo(b.x + b.width / 2, bY - 15);
+                ctx.lineTo(b.x + b.width + 5, bY);
+                ctx.fill();
+                // door
+                ctx.fillStyle = '#111';
+                ctx.fillRect(b.x + b.width / 2 - 5, bY + b.height - 15, 10, 15);
+                // windows
+                ctx.fillStyle = '#ffeb3b';
+                if (b.windows >= 1) ctx.fillRect(b.x + 5, bY + 10, 8, 8);
+                if (b.windows >= 2) ctx.fillRect(b.x + b.width - 13, bY + 10, 8, 8);
+            } else if (b.type === 'tower') {
+                // antenna
+                ctx.fillStyle = '#222';
+                ctx.fillRect(b.x + b.width / 2 - 1, bY - 20, 2, 20);
+                // blinking light
+                ctx.fillStyle = '#f44336';
+                if (Math.floor(timestamp / 500) % 2 === 0) {
+                    ctx.fillRect(b.x + b.width / 2 - 2, bY - 20, 4, 4);
+                }
+                // windows
+                ctx.fillStyle = '#ffeb3b';
+                b.litLights.forEach(wy => {
+                    ctx.fillRect(b.x + b.width/2 - 4, bY + wy, 8, 10);
+                });
+            } else if (b.type === 'apt') {
+                ctx.fillStyle = '#ffeb3b';
+                b.litGrid.forEach(row => {
+                    row.xList.forEach(wx => {
+                        ctx.fillRect(b.x + 5 + wx*15, bY + row.y, 8, 10);
+                    });
+                });
+            }
+        });
     }
 
     // Draw Grass Foreground
@@ -905,35 +1572,51 @@ function gameLoop(timestamp) {
     ctx.fillStyle = "#424242";
     ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
 
-    // Skin
+    // Hoodie color calculation (Purple -> Green up to round 30)
+    let transitionProgress = Math.min(Math.max(gameState.round - 1, 0) / 29, 1.0);
+    // Purple setup: rgb(156, 39, 176)
+    // Green setup: rgb(76, 175, 80)
+    let hr = Math.floor(156 + (76 - 156) * transitionProgress);
+    let hg = Math.floor(39 + (175 - 39) * transitionProgress);
+    let hb = Math.floor(176 + (80 - 176) * transitionProgress);
+    let hoodieColor = `rgb(${hr}, ${hg}, ${hb})`;
+
+    // Skin (Face base)
     ctx.fillStyle = "#ffcc80";
-    ctx.fillRect(portraitX + 3 * dSize, portraitY + 3 * dSize, 10 * dSize, 10 * dSize);
-
-    // Straw Hat (Yellow/Tan)
-    ctx.fillStyle = "#e6c229"; // Straw yellow
-    ctx.fillRect(portraitX + 3 * dSize, portraitY + 1 * dSize, 10 * dSize, 4 * dSize); // Hat dome
-    ctx.fillRect(portraitX + 1 * dSize, portraitY + 4 * dSize, 14 * dSize, 2 * dSize); // Hat brim
     
-    // Hat Band
-    ctx.fillStyle = "#d63031"; // Red band
-    ctx.fillRect(portraitX + 3 * dSize, portraitY + 3 * dSize, 10 * dSize, 1 * dSize);
+    if (timestamp < gameState.baldUntil) {
+        // Bald man logic
+        // Draw a larger, exposed dome and wider skin base replacing the hoodie sides
+        ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 11 * dSize); 
+        
+        // Hoodie Shoulders Only
+        ctx.fillStyle = hoodieColor;
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize); // Shoulders/neck area
+    } else {
+        // Standard Face
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 4 * dSize, 8 * dSize, 9 * dSize);
+        
+        // Hoodie Main
+        ctx.fillStyle = hoodieColor;
+        ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 2 * dSize); // Top of hood
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 3 * dSize, 2 * dSize, 10 * dSize); // Left hood side
+        ctx.fillRect(portraitX + 12 * dSize, portraitY + 3 * dSize, 2 * dSize, 10 * dSize); // Right hood side
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize); // Shoulders/neck area
+        
+        // Hoodie Inner Shading / Drawstrings
+        ctx.fillStyle = `rgb(${Math.floor(hr*0.6)}, ${Math.floor(hg*0.6)}, ${Math.floor(hb*0.6)})`;
+        ctx.fillRect(portraitX + 3 * dSize, portraitY + 4 * dSize, 1 * dSize, 9 * dSize); // Inner left shadow
+        ctx.fillRect(portraitX + 12 * dSize, portraitY + 4 * dSize, 1 * dSize, 9 * dSize); // Inner right shadow
+    }
 
-    // Cool Sunglasses
-    ctx.fillStyle = "#111111"; // Dark grey/black lenses
-    ctx.fillRect(portraitX + 3 * dSize, portraitY + 6 * dSize, 10 * dSize, 3 * dSize);
+    // Eyes
+    ctx.fillStyle = "white";
+    ctx.fillRect(portraitX + 5 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+    ctx.fillRect(portraitX + 9 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
     
-    // Bridge cutout (putting skin back)
-    ctx.fillStyle = "#ffcc80"; 
-    ctx.fillRect(portraitX + 7 * dSize, portraitY + 8 * dSize, 2 * dSize, 1 * dSize);
-    
-    // Sunglass glare
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(portraitX + 4 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
-    ctx.fillRect(portraitX + 10 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
-
-    // Red Bandana Scarf
-    ctx.fillStyle = "#d63031"; 
-    ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize);
+    ctx.fillStyle = "black"; // Pupils
+    ctx.fillRect(portraitX + 6 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
+    ctx.fillRect(portraitX + 9 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
 
     // Player Mouth Animation (2 Frames)
     ctx.fillStyle = "#4e342e"; // Dark inner mouth
@@ -1053,6 +1736,39 @@ function startGame() {
     
     // Kickoff Game Logic
     let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
+    
+    // Reset state for new game
+    gameState.lives = 5;
+    gameState.score = 0;
+    gameState.killCount = 0;
+    gameState.tigersKilled = 0;
+    gameState.airplanesKilled = 0;
+    gameState.portraitClicks = 0;
+    gameState.baldUntil = 0;
+    gameState.round = 1;
+    gameState.perfectRounds = 0;
+    gameState.sunClicks = 0;
+    gameState.infiniteAmmo = false;
+    document.getElementById('round-display').innerText = 'R=1';
+    
+    // Background buildings & airplanes reset
+    gameState.buildings = [];
+    gameState.airplanes = [];
+    gameState.tigers = [];
+    gameState.lastAirplaneTime = performance.now();
+    spawnBuildings(1);
+    
+    if (somberSource) {
+        somberSource.stop();
+        somberSource.disconnect();
+        somberSource = null;
+    }
+    if (cheerfulSource) {
+        cheerfulSource.stop();
+        cheerfulSource.disconnect();
+        cheerfulSource = null;
+    }
+    
     startBGM(currentLevel);
     
     gameState.phase = 'SPAWN';
@@ -1072,6 +1788,28 @@ startBtnFs.addEventListener('touchstart', launchFsAndStart, {passive: true});
 
 toggleFs.addEventListener('click', toggleFullscreen);
 toggleFs.addEventListener('touchstart', toggleFullscreen, {passive: true});
+
+const resetBtn = document.getElementById('reset-btn');
+function resetToStart(e) {
+    if (e) e.stopPropagation();
+    resetBtn.style.display = 'none';
+    if (somberSource) {
+        somberSource.stop();
+        somberSource.disconnect();
+        somberSource = null;
+    }
+    if (cheerfulSource) {
+        cheerfulSource.stop();
+        cheerfulSource.disconnect();
+        cheerfulSource = null;
+    }
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    gameState.phase = 'START';
+    startScreen.style.display = 'flex';
+}
+resetBtn.addEventListener('click', resetToStart);
+resetBtn.addEventListener('touchstart', resetToStart, {passive: true});
 
 // Start Game visual loop (only background draws until button click)
 gameState.lastTime = performance.now();

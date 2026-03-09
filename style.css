@@ -70,6 +70,32 @@ body, html {
     border-radius: 5px 5px 0 0;
 }
 
+#lives-display {
+    display: flex;
+    gap: 5px;
+}
+
+.heart {
+    width: 20px;
+    height: 20px;
+    background-color: #f44336;
+    border: 2px solid #000;
+    transform: rotate(-45deg);
+    margin: 5px;
+}
+.heart::before, .heart::after {
+    content: '';
+    width: 20px;
+    height: 20px;
+    background-color: #f44336;
+    border: 2px solid #000;
+    border-bottom: 0;
+    position: absolute;
+}
+.heart::before { top: -11px; left: -2px; border-radius: 50% 50% 0 0; border-right: 0; }
+.heart::after { top: -2px; left: 9px; border-radius: 0 50% 50% 0; border-top: 0; }
+
+
 #round-display {
     font-size: 20px;
     font-weight: bold;
@@ -95,9 +121,17 @@ body, html {
     font-size: 48px;
     color: #ffeb3b;
     text-shadow: 4px 4px 0 #d84315;
-    margin-bottom: 50px;
+    margin-bottom: 10px;
     text-align: center;
     letter-spacing: 2px;
+}
+
+.game-subtitle {
+    font-size: 24px;
+    color: #b8860b;
+    text-shadow: 2px 2px 0 #000;
+    margin-bottom: 50px;
+    text-align: center;
 }
 
 .btn {

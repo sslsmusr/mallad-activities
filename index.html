@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mallard Madness</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
     <div id="game-container">
         <!-- Start Screen Overlay -->
         <div id="start-screen">
             <h1 class="game-title">MALLARD MADNESS</h1>
+            <p class="game-subtitle">a game about nothing in particular</p>
             <button id="start-btn" class="btn">NEW GAME</button>
             <button id="start-btn-fs" class="btn" style="margin-top: 20px;">NEW GAME (FULLSCREEN)</button>
         </div>
@@ -23,16 +24,20 @@
                 <div class="bullet"></div>
                 <div class="bullet"></div>
             </div>
+            <div id="lives-display"></div>
             <div id="round-display">R=1</div>
         </div>
         
         <!-- Fullscreen toggle (floating top right) -->
         <button id="toggle-fs">⛶</button>
         
+        <!-- Game Over Reset Button -->
+        <button id="reset-btn" class="btn" style="display: none; position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); z-index: 100;">RESET GAME</button>
+        
         <!-- The Game Canvas (background, ducks, foreground) -->
         <canvas id="game-canvas"></canvas>
     </div>
     
-    <script type="module" src="game.js"></script>
+    <script type="module" src="game.js?v=17"></script>
 </body>
 </html>
