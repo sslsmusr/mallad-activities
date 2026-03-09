@@ -682,8 +682,33 @@ function gameLoop(timestamp) {
 // Start Screen Hookup
 const startScreen = document.getElementById('start-screen');
 const startBtn = document.getElementById('start-btn');
+const startBtnFs = document.getElementById('start-btn-fs');
+const toggleFs = document.getElementById('toggle-fs');
 
-startBtn.addEventListener('click', () => {
+function toggleFullscreen(e) {
+    if (e) {
+        e.stopPropagation();
+    }
+    let doc = document.documentElement;
+    let isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+    
+    if (!isFullscreen) {
+        let requestFS = doc.requestFullscreen || doc.webkitRequestFullscreen || doc.mozRequestFullScreen || doc.msRequestFullscreen;
+        if (requestFS) {
+            let promise = requestFS.call(doc);
+            if (promise) {
+                promise.catch(err => console.error("Fullscreen error:", err));
+            }
+        }
+    } else {
+        let exitFS = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+        if (exitFS) {
+            exitFS.call(document);
+        }
+    }
+}
+
+function startGame() {
     // Hide UI overlay
     startScreen.style.display = 'none';
     
@@ -695,7 +720,21 @@ startBtn.addEventListener('click', () => {
     // Kickoff Game Logic
     gameState.phase = 'SPAWN';
     gameState.lastTime = performance.now();
-});
+}
+
+startBtn.addEventListener('click', startGame);
+startBtn.addEventListener('touchstart', startGame, {passive: true});
+
+function launchFsAndStart(e) {
+    toggleFullscreen(e);
+    startGame();
+}
+
+startBtnFs.addEventListener('click', launchFsAndStart);
+startBtnFs.addEventListener('touchstart', launchFsAndStart, {passive: true});
+
+toggleFs.addEventListener('click', toggleFullscreen);
+toggleFs.addEventListener('touchstart', toggleFullscreen, {passive: true});
 
 // Start Game visual loop (only background draws until button click)
 gameState.lastTime = performance.now();

@@ -11,7 +11,8 @@
         <!-- Start Screen Overlay -->
         <div id="start-screen">
             <h1 class="game-title">MALLARD MADNESS</h1>
-            <button id="start-btn">NEW GAME</button>
+            <button id="start-btn" class="btn">NEW GAME</button>
+            <button id="start-btn-fs" class="btn" style="margin-top: 20px;">NEW GAME (FULLSCREEN)</button>
         </div>
         
         <!-- The UI Layer (score, ammo, etc.) -->
@@ -24,6 +25,9 @@
             </div>
             <div id="round-display">R=1</div>
         </div>
+        
+        <!-- Fullscreen toggle (floating top right) -->
+        <button id="toggle-fs">⛶</button>
         
         <!-- The Game Canvas (background, ducks, foreground) -->
         <canvas id="game-canvas"></canvas>

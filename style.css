@@ -100,7 +100,7 @@ body, html {
     letter-spacing: 2px;
 }
 
-#start-btn {
+.btn {
     font-family: inherit;
     font-size: 24px;
     font-weight: bold;
@@ -113,7 +113,32 @@ body, html {
     text-transform: uppercase;
 }
 
-#start-btn:active {
+.btn:active {
     transform: translate(4px, 4px);
     box-shadow: 0 0 0 #000;
+}
+
+#toggle-fs {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 50;
+    opacity: 0.5;
+    font-family: inherit;
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    background-color: #4caf50;
+    border: 2px solid #fff;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    box-shadow: 2px 2px 0 #000;
+    line-height: 1;
+}
+
+#toggle-fs:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 #000;
+    opacity: 0.8;
 }
