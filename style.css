@@ -1,0 +1,119 @@
+/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body, html {
+    width: 100%;
+    height: 100%;
+    background-color: #111;
+    overflow: hidden; /* Prevent scrolling on mobile */
+    font-family: 'Courier New', Courier, monospace; /* Retro font look */
+    touch-action: none; /* Prevent default touch actions like pinch-zoom */
+}
+
+/* Game container - optimized for portrait */
+#game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    max-width: 600px; /* Optional: limit width on desktop to keep portrait feel */
+    margin: 0 auto;
+    background-color: #64b5f6; /* Sky blue background */
+    overflow: hidden;
+}
+
+/* Canvas covers the whole container */
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated; /* Retro aesthetic */
+}
+
+/* UI Overlay Layer */
+#ui-layer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 80px;
+    background-color: #212121;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 15px;
+    z-index: 10;
+    border-top: 4px solid #8bc34a; /* Grass colored border */
+}
+
+#score-display {
+    font-size: 24px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 2px 2px 0 #000;
+}
+
+#ammo-display {
+    display: flex;
+    gap: 5px;
+}
+
+.bullet {
+    width: 15px;
+    height: 25px;
+    background-color: #ffeb3b;
+    border: 2px solid #000;
+    border-radius: 5px 5px 0 0;
+}
+
+#round-display {
+    font-size: 20px;
+    font-weight: bold;
+    color: #aed581;
+}
+
+/* Start Screen Overlay */
+#start-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+}
+
+.game-title {
+    font-size: 48px;
+    color: #ffeb3b;
+    text-shadow: 4px 4px 0 #d84315;
+    margin-bottom: 50px;
+    text-align: center;
+    letter-spacing: 2px;
+}
+
+#start-btn {
+    font-family: inherit;
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    background-color: #4caf50;
+    border: 4px solid #fff;
+    padding: 15px 30px;
+    cursor: pointer;
+    box-shadow: 4px 4px 0 #000;
+    text-transform: uppercase;
+}
+
+#start-btn:active {
+    transform: translate(4px, 4px);
+    box-shadow: 0 0 0 #000;
+}
