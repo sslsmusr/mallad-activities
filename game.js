@@ -19,6 +19,8 @@ let quackBuffer = null;
 let wompBuffer = null;
 let snickerBuffer = null;
 let jingleBuffer = null;
+let bgmBuffer = null;
+let bgmSource = null; // To track and update the playing BGM
 
 // Fetch and load the generated retro quack
 fetch('quack.wav')
@@ -45,6 +47,12 @@ fetch('jingle.wav')
     .then(buffer => { jingleBuffer = buffer; })
     .catch(e => console.error('Error loading jingle sound:', e));
 
+fetch('balkan_loop.wav')
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { bgmBuffer = buffer; })
+    .catch(e => console.error('Error loading balkan loop:', e));
+
 function playSound(buffer, volume = 1.0) {
     if (!buffer) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -55,6 +63,32 @@ function playSound(buffer, volume = 1.0) {
     source.connect(gainNode);
     gainNode.connect(audioCtx.destination);
     source.start(0);
+}
+
+function startBGM(level) {
+    if (!bgmBuffer) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    // If it's already playing, gently adjust the speed without restarting the song!
+    if (bgmSource) {
+        bgmSource.playbackRate.value = 1.0 + (level - 1) * 0.1;
+        return;
+    }
+    
+    bgmSource = audioCtx.createBufferSource();
+    bgmSource.buffer = bgmBuffer;
+    bgmSource.loop = true;
+    
+    // Scale playback speed dynamically. 
+    // Ducks get 10% faster per level. The music will match this exactly!
+    bgmSource.playbackRate.value = 1.0 + (level - 1) * 0.1;
+    
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = 0.4; // Slightly lower volume so it's a background track
+    
+    bgmSource.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    bgmSource.start(0);
 }
 
 function playQuack(level) {
@@ -106,6 +140,7 @@ let gameState = {
     ammo: 5,
     round: 1,
     ducks: [],
+    projectiles: [], // Store flying projectiles
     lastTime: 0,
     phase: 'START',
     timer: 0,
@@ -173,6 +208,7 @@ class Duck {
         this.vy = -(150 + Math.random() * 150) * this.speedMult;
         
         this.isDead = false;
+        this.isTargeted = false; // Prevent multiple projectiles targeting same duck
         this.color = ['#ff0000', '#00ff00', '#ffff00'][Math.floor(Math.random() * 3)];
     }
 
@@ -256,7 +292,187 @@ class Duck {
     }
 }
 
+class Projectile {
+    constructor(startX, startY, targetX, targetY, targetDuck, hitSun) {
+        this.startX = startX;
+        this.startY = startY;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.targetDuck = targetDuck;
+        this.hitSun = hitSun;
+        this.timeElapsed = 0;
+        this.timeTotal = 0.1; // 100ms flight time
+        this.isDead = false;
+        this.fullyDead = false;
+        this.particles = null;
+    }
+
+    update(dt) {
+        if (this.isDead) {
+            // Update miss particles
+            if (this.particles) {
+                let allDead = true;
+                this.particles.forEach(p => {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.life -= dt;
+                    if (p.life > 0) allDead = false;
+                });
+                if (allDead) this.fullyDead = true;
+            } else {
+                this.fullyDead = true;
+            }
+            return;
+        }
+        
+        this.timeElapsed += dt;
+        if (this.timeElapsed >= this.timeTotal) {
+            this.impact();
+            this.isDead = true;
+        }
+    }
+
+    impact() {
+        if (this.hitSun || (this.targetDuck && !this.targetDuck.isDead)) {
+            flashScreen(); // Impact flash ONLY on hits!
+        }
+        
+        if (this.hitSun) {
+            if (!gameState.infiniteAmmo) {
+                gameState.sunClicks++;
+                if (gameState.sunClicks === 4) {
+                    gameState.infiniteAmmo = true;
+                    playSound(jingleBuffer, 0.8);
+                }
+            }
+            updateUI();
+        }
+
+        if (this.targetDuck && !this.targetDuck.isDead) { // Ensure it wasn't destroyed
+            let duck = this.targetDuck;
+            duck.isDead = true;
+            duck.particles = [];
+            for (let p = 0; p < 30; p++) {
+                duck.particles.push({
+                    x: duck.x + Math.random() * duck.width,
+                    y: duck.y + Math.random() * duck.height,
+                    vx: (Math.random() - 0.5) * 400,
+                    vy: (Math.random() - 0.5) * 400,
+                    size: 4 + Math.random() * 8, // chunky pixels
+                    life: 0.5 + Math.random() * 0.5, // 0.5s to 1s expiration
+                    color: Math.random() > 0.5 ? '#ffeb3b' : (Math.random() > 0.5 ? '#4caf50' : '#ff9800')
+                });
+            }
+            gameState.score += 500;
+            gameState.killCount++;
+            gameState.sessionKills++;
+            
+            // Play quack explicitly tailored to duck's difficulty level
+            playQuack(duck.level);
+            
+            // Gain a bullet for every 2 kills in a round
+            if (gameState.sessionKills % 2 === 0) {
+                gameState.ammo++;
+            }
+            
+            // If level 3 or higher, perform the split
+            if (duck.level >= 3) {
+                let splitLevel = duck.level - 2;
+                gameState.ducks.push(new Duck(splitLevel, duck.x, duck.y, true));
+                gameState.ducks.push(new Duck(splitLevel, duck.x + duck.width / 2, duck.y, true));
+                gameState.ammo++; // Extra bullet for shooting a splitting duck!
+            }
+            
+            updateUI();
+        } else if (!this.hitSun && !this.targetDuck) {
+            // Missed everything (Puff of purple smoke)
+            this.particles = [];
+            for (let p = 0; p < 15; p++) {
+                this.particles.push({
+                    x: this.targetX,
+                    y: this.targetY,
+                    vx: (Math.random() - 0.5) * 200,
+                    vy: (Math.random() - 0.5) * 200,
+                    size: 3 + Math.random() * 5,
+                    life: 0.2 + Math.random() * 0.3, // very short burst
+                    color: '#9c27b0' // matching opaque purple
+                });
+            }
+            
+            if (gameState.ammo >= 0 && !gameState.infiniteAmmo) {
+                playSound(wompBuffer, 0.5);
+            }
+        }
+    }
+
+    draw(ctx) {
+        if (this.isDead) {
+            if (this.particles) {
+                this.particles.forEach(p => {
+                    if (p.life > 0) {
+                        ctx.fillStyle = p.color;
+                        ctx.globalAlpha = Math.max(0, p.life);
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                ctx.globalAlpha = 1.0;
+            }
+            return;
+        }
+        
+        let t = this.timeElapsed / this.timeTotal;
+        let targetX = this.targetX;
+        let targetY = this.targetY;
+        
+        // Dynamically track flying duck if targeted
+        if (this.targetDuck && !this.targetDuck.isDead) {
+            targetX = this.targetDuck.x + this.targetDuck.width / 2;
+            targetY = this.targetDuck.y + this.targetDuck.height / 2;
+        }
+
+        let currentX = this.startX + (targetX - this.startX) * t;
+        let currentY = this.startY + (targetY - this.startY) * t;
+        
+        let trailLength = 60;
+        let dist = Math.hypot(targetX - this.startX, targetY - this.startY);
+        let ratio = trailLength / dist;
+        if (ratio > t) ratio = t; // don't draw trail longer than travelled distance
+
+        let tailX = currentX - (targetX - this.startX) * ratio;
+        let tailY = currentY - (targetY - this.startY) * ratio;
+
+        ctx.strokeStyle = "rgba(156, 39, 176, 1.0)"; // opaque purple trail
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(tailX, tailY);
+        ctx.lineTo(currentX, currentY);
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff"; // hot white bullet tip
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
 let lastShotTime = 0;
+let currentAimAngle = 45 * Math.PI / 180;
+let currentAimX = 200;
+let currentAimY = 200;
+
+canvas.addEventListener('mousemove', (e) => {
+    let rect = canvas.getBoundingClientRect();
+    currentAimX = e.clientX - rect.left;
+    currentAimY = e.clientY - rect.top;
+});
+
+canvas.addEventListener('touchmove', (e) => {
+    let rect = canvas.getBoundingClientRect();
+    if (e.touches.length > 0) {
+        currentAimX = e.touches[0].clientX - rect.left;
+        currentAimY = e.touches[0].clientY - rect.top;
+    }
+}, { passive: true });
 
 // Input Handling (Touch and Click)
 function handleShoot(event) {
@@ -280,83 +496,55 @@ function handleShoot(event) {
         y = event.clientY - rect.top;
     }
 
-    // Check for Easter Egg: Clicking the Sun
+    // Check for hit targets (Evaluate immediately, impact logic is deferred)
+    let hitDuck = null;
     let hitSun = false;
+    
+    // Check for Easter Egg: Clicking the Sun
     let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
-    if (currentLevel >= 4 && Math.abs(x - 80) <= 40 && Math.abs(y - 80) <= 40) {
+    // Expand sun hitbox slightly to account for travel prediction
+    if (currentLevel >= 4 && Math.abs(x - 80) <= 60 && Math.abs(y - 80) <= 60) {
         hitSun = true;
-        if (!gameState.infiniteAmmo) {
-            gameState.sunClicks++;
-            if (gameState.sunClicks === 4) {
-                gameState.infiniteAmmo = true;
-                playSound(jingleBuffer, 0.8);
+    }
+
+    if (!hitSun) {
+        for (let i = gameState.ducks.length - 1; i >= 0; i--) {
+            const duck = gameState.ducks[i];
+            if (!duck.isDead && !duck.isTargeted &&
+                x >= duck.x && x <= duck.x + duck.width &&
+                y >= duck.y && y <= duck.y + duck.height) {
+                
+                hitDuck = duck;
+                duck.isTargeted = true; // Mark targeted so it isn't hit by multiple projectiles
+                break; 
             }
         }
     }
+
+    // Spawn Projectile from Gun Muzzle
+    let dSize = 4;
+    let uiYOffset = 85;
+    let bgBoxX = 10;
+    let bgBoxW = 16 * dSize + 20;
+    let gunX = bgBoxX + bgBoxW + 20;
+    let gunY = canvas.height - uiYOffset + 10;
+    let barrelLen = 31 * dSize;
+    
+    // Calculate dynamic rotation angle based on where user clicked
+    currentAimAngle = Math.atan2(y - gunY, x - gunX) + Math.PI / 2;
+    
+    let muzzleLocalX = 5 * dSize; 
+    let muzzleLocalY = -barrelLen - 4 * dSize;
+    
+    let startX = gunX + muzzleLocalX * Math.cos(currentAimAngle) - muzzleLocalY * Math.sin(currentAimAngle);
+    let startY = gunY + muzzleLocalX * Math.sin(currentAimAngle) + muzzleLocalY * Math.cos(currentAimAngle);
+
+    gameState.projectiles.push(new Projectile(startX, startY, x, y, hitDuck, hitSun));
 
     if (!gameState.infiniteAmmo) {
         gameState.ammo--;
     }
     updateUI();
-
-    // Flash screen effect
-    flashScreen();
-
-    // If we didn't hit a tiger, check the ducks
-    let hitDuck = false;
-    for (let i = gameState.ducks.length - 1; i >= 0; i--) {
-        const duck = gameState.ducks[i];
-        if (!duck.isDead && 
-            x >= duck.x && x <= duck.x + duck.width &&
-            y >= duck.y && y <= duck.y + duck.height) {
-            
-            // Hit duck!
-            duck.isDead = true;
-            duck.particles = [];
-            for (let p = 0; p < 30; p++) {
-                duck.particles.push({
-                    x: duck.x + Math.random() * duck.width,
-                    y: duck.y + Math.random() * duck.height,
-                    vx: (Math.random() - 0.5) * 400,
-                    vy: (Math.random() - 0.5) * 400,
-                    size: 4 + Math.random() * 8, // chunky pixels
-                    life: 0.5 + Math.random() * 0.5, // 0.5s to 1s expiration
-                    color: Math.random() > 0.5 ? '#ffeb3b' : (Math.random() > 0.5 ? '#4caf50' : '#ff9800')
-                });
-            }
-            gameState.score += 500;
-            gameState.killCount++;
-            gameState.sessionKills++;
-            hitDuck = true;
-            
-            // Play quack explicitly tailored to duck's difficulty level
-            playQuack(duck.level);
-            
-            // Gain a bullet for every 2 kills in a round
-            if (gameState.sessionKills % 2 === 0) {
-                gameState.ammo++;
-            }
-            
-            // If level 3 or higher, perform the split (spawn 2 ducks, 2 levels lower)
-            if (duck.level >= 3) {
-                let splitLevel = duck.level - 2;
-                // Add `true` for `isSplit` parameter so they fly 30% slower
-                gameState.ducks.push(new Duck(splitLevel, duck.x, duck.y, true));
-                gameState.ducks.push(new Duck(splitLevel, duck.x + duck.width / 2, duck.y, true));
-                gameState.ammo++; // Extra bullet for shooting a splitting duck!
-            }
-            
-            updateUI();
-            break; // Only hit one duck per shot
-        }
-    }
-    
-    // Play womp if missed everything and not clicking the sun easter egg
-    if (!hitDuck && !hitSun && gameState.ammo >= 0 && !gameState.infiniteAmmo) {
-        playSound(wompBuffer, 0.5);
-    } else if (!hitDuck && !hitSun && gameState.infiniteAmmo) {
-        // Just play nothing or a standard miss sound if infinite ammo
-    }
 }
 
 canvas.addEventListener('mousedown', handleShoot);
@@ -542,6 +730,12 @@ function gameLoop(timestamp) {
         return duck.y < canvas.height + 100 && duck.y > -200;
     });
 
+    // Auto-start BGM mid-game if it finishes loading late
+    if (!bgmSource && bgmBuffer && gameState.phase !== 'START') {
+        let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
+        startBGM(currentLevel);
+    }
+
     // Phase Logic
     if (gameState.phase === 'SPAWN') {
         gameState.ducks.push(new Duck());
@@ -550,6 +744,10 @@ function gameLoop(timestamp) {
         gameState.sessionKills = 0; // Reset consecutive kills per round
         gameState.escapedThisRound = 0; // Reset escaping penalization
         updateUI();
+        
+        let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
+        startBGM(currentLevel); // Make sure the music speed updates each round!
+        
         gameState.phase = 'PLAY';
     } else if (gameState.phase === 'PLAY') {
         if (gameState.ducks.length === 0) {
@@ -669,12 +867,148 @@ function gameLoop(timestamp) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
+    // Update & Draw Projectiles ON TOP of grass and foreground
+    gameState.projectiles.forEach(p => {
+        p.update(dt);
+        p.draw(ctx);
+    });
+    gameState.projectiles = gameState.projectiles.filter(p => !p.fullyDead);
+
     // Draw Screen Flash
     if (flashFrames > 0) {
         ctx.fillStyle = 'white';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         flashFrames--;
     }
+
+    // --- Draw Doom-style UI (Portrait & Gun) ---
+    let dSize = 4;
+    let uiYOffset = 85; // strictly above bottom UI bar
+    
+    // Background Dark Rectangle (10px inset to portrait)
+    let bgBoxX = 10;
+    let bgBoxY = canvas.height - uiYOffset - 15 * dSize - 20;
+    let bgBoxW = 16 * dSize + 20;
+    let bgBoxH = 15 * dSize + 20;
+    
+    ctx.fillStyle = "#111111"; // Very dark backing
+    ctx.fillRect(bgBoxX, bgBoxY, bgBoxW, bgBoxH);
+    ctx.strokeStyle = "#8bc34a"; // Green outer border
+    ctx.lineWidth = 4;
+    ctx.strokeRect(bgBoxX, bgBoxY, bgBoxW, bgBoxH);
+
+    // Inner Portrait (10px inset from the bgBox)
+    let portraitX = bgBoxX + 10;
+    let portraitY = bgBoxY + 10; 
+
+    // Portrait Background Box
+    ctx.fillStyle = "#424242";
+    ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
+
+    // Skin
+    ctx.fillStyle = "#ffcc80";
+    ctx.fillRect(portraitX + 3 * dSize, portraitY + 3 * dSize, 10 * dSize, 10 * dSize);
+
+    // Straw Hat (Yellow/Tan)
+    ctx.fillStyle = "#e6c229"; // Straw yellow
+    ctx.fillRect(portraitX + 3 * dSize, portraitY + 1 * dSize, 10 * dSize, 4 * dSize); // Hat dome
+    ctx.fillRect(portraitX + 1 * dSize, portraitY + 4 * dSize, 14 * dSize, 2 * dSize); // Hat brim
+    
+    // Hat Band
+    ctx.fillStyle = "#d63031"; // Red band
+    ctx.fillRect(portraitX + 3 * dSize, portraitY + 3 * dSize, 10 * dSize, 1 * dSize);
+
+    // Cool Sunglasses
+    ctx.fillStyle = "#111111"; // Dark grey/black lenses
+    ctx.fillRect(portraitX + 3 * dSize, portraitY + 6 * dSize, 10 * dSize, 3 * dSize);
+    
+    // Bridge cutout (putting skin back)
+    ctx.fillStyle = "#ffcc80"; 
+    ctx.fillRect(portraitX + 7 * dSize, portraitY + 8 * dSize, 2 * dSize, 1 * dSize);
+    
+    // Sunglass glare
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(portraitX + 4 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+    ctx.fillRect(portraitX + 10 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+
+    // Red Bandana Scarf
+    ctx.fillStyle = "#d63031"; 
+    ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize);
+
+    // Player Mouth Animation (2 Frames)
+    ctx.fillStyle = "#4e342e"; // Dark inner mouth
+    let mouthOpen = Math.floor(timestamp / 300) % 2 === 0;
+    if (mouthOpen) {
+        ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 3 * dSize);
+        // Teeth
+        ctx.fillStyle = "white";
+        ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 1 * dSize);
+    } else {
+        ctx.fillRect(portraitX + 6 * dSize, portraitY + 10 * dSize, 4 * dSize, 1 * dSize);
+    }
+
+    // Static Gun Rotated (Now dynamic based on aiming)
+    let gunX = bgBoxX + bgBoxW + 20;
+    let gunY = canvas.height - uiYOffset + 10; // set pivot at bottom of screen
+    
+    // Smoothly track current aim regardless of firing (Active HUD tracking)
+    currentAimAngle = Math.atan2(currentAimY - gunY, currentAimX - gunX) + Math.PI / 2;
+    
+    ctx.save();
+    ctx.translate(gunX, gunY);
+    ctx.rotate(currentAimAngle);
+
+    let barrelLen = 31 * dSize; // 50% longer than 21 (roughly ~31)
+    
+    let isGolden = gameState.round >= 30;
+
+    // Barrels (Double barrel shotgun)
+    ctx.fillStyle = isGolden ? "#d4af37" : "#212121";
+    ctx.fillRect(0, -barrelLen - 4 * dSize, 10 * dSize, barrelLen);
+    ctx.fillStyle = isGolden ? "#fbf5b7" : "#757575"; // Highlights
+    ctx.fillRect(1 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
+    ctx.fillRect(6 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
+    
+    // Gap between barrels
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(4 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
+
+    // Grip/Hand holding it
+    ctx.fillStyle = "#388e3c"; // Doomguy green glove
+    ctx.fillRect(-2 * dSize, -7 * dSize, 14 * dSize, 7 * dSize);
+    ctx.fillStyle = "#1b5e20";
+    ctx.fillRect(-2 * dSize, -2 * dSize, 14 * dSize, 2 * dSize); // knuckles frame
+    
+    // Draw Laser Sight (Level 30+)
+    if (isGolden) {
+        ctx.strokeStyle = "rgba(255, 0, 0, 0.7)"; // Transparent red laser beam
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(5 * dSize, -barrelLen - 4 * dSize);
+        ctx.lineTo(5 * dSize, -2000); // Shoot out perfectly parallel to barrels into sky
+        ctx.stroke();
+    }
+
+    // Muzzle Flash Animation (2 Frames based on tap timing)
+    let timeSinceShot = performance.now() - lastShotTime;
+    if (timeSinceShot < 100) { // Keep under the 100ms flight-time threshold
+        if (timeSinceShot < 40) {
+            // Frame 1: Massive explosive burst
+            ctx.fillStyle = "#ff9800"; // Orange backing
+            ctx.fillRect(-4 * dSize, -barrelLen - 12 * dSize, 18 * dSize, 10 * dSize);
+            ctx.fillStyle = "#ffeb3b"; // Yellow core
+            ctx.fillRect(-2 * dSize, -barrelLen - 10 * dSize, 14 * dSize, 6 * dSize);
+            ctx.fillStyle = "#ffffff"; // White hot center
+            ctx.fillRect(2 * dSize, -barrelLen - 9 * dSize, 6 * dSize, 4 * dSize);
+        } else {
+            // Frame 2: Dissipating puff
+            ctx.fillStyle = "#ffeb3b";
+            ctx.fillRect(0, -barrelLen - 8 * dSize, 10 * dSize, 5 * dSize);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(3 * dSize, -barrelLen - 7 * dSize, 4 * dSize, 3 * dSize);
+        }
+    }
+    ctx.restore();
 
     requestAnimationFrame(gameLoop);
 }
@@ -718,6 +1052,9 @@ function startGame() {
     }
     
     // Kickoff Game Logic
+    let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
+    startBGM(currentLevel);
+    
     gameState.phase = 'SPAWN';
     gameState.lastTime = performance.now();
 }
