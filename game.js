@@ -27,6 +27,8 @@ let cheerfulSource = null;
 let sirenBuffer = null;
 let sirenSource = null;
 let boomBuffer = null;
+let cyberpunkBuffer = null;
+let cyberpunkSource = null;
 let deathTextLines = [];
 let winTextLines = [];
 let winTimer = 0;
@@ -96,6 +98,12 @@ fetch('boom.wav')
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { boomBuffer = buffer; })
     .catch(e => console.error('Error loading boom:', e));
+
+fetch('cyberpunk.wav')
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { cyberpunkBuffer = buffer; })
+    .catch(e => console.error('Error loading cyberpunk melody:', e));
 
 function playSound(buffer, volume = 1.0, loop = false) {
     if (!buffer) return null;
@@ -189,13 +197,19 @@ let gameState = {
     ducks: [],
     projectiles: [], // Store flying projectiles
     buildings: [],
+    hills: [],
     airplanes: [],
     tigers: [],
     eagles: [],
+    hotdogs: [],
+    seekingMissiles: [],
     floatingTexts: [],
     powerUpActive: false,
     powerUpTimer: 0,
     powerUpEndRound: 0,
+    hotdogPowerUpActive: false,
+    hotdogPowerUpTimer: 0,
+    hotdogPowerUpEndRound: 0,
     tigersKilled: 0,
     airplanesKilled: 0,
     lastAirplaneTime: 0,
@@ -581,6 +595,237 @@ class EaglePowerUp {
         ctx.restore();
     }
 }
+
+class HotdogPowerUp {
+    constructor(x, y, duckSpeed) {
+        this.width = 60;
+        this.height = 30;
+        this.x = x;
+        this.y = y;
+        this.vy = Math.max(50, Math.abs(duckSpeed) * 0.1);
+        this.isDead = false;
+        this.particles = null;
+    }
+
+    update(dt) {
+        if (!this.isDead) {
+            this.y += this.vy * dt;
+        } else {
+            if (this.particles) {
+                let allDead = true;
+                this.particles.forEach(p => {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.life -= dt;
+                    if (p.life > 0) allDead = false;
+                });
+                if (allDead) this.y = 9999;
+            } else {
+                this.y = 9999;
+            }
+        }
+    }
+
+    draw(ctx) {
+        if (this.isDead) {
+            if (this.particles) {
+                this.particles.forEach(p => {
+                    if (p.life > 0) {
+                        ctx.fillStyle = p.color;
+                        ctx.globalAlpha = Math.max(0, p.life);
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                ctx.globalAlpha = 1.0;
+            }
+            return;
+        }
+        ctx.save();
+        ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+        ctx.globalAlpha = 0.9;
+
+        let p = 4;
+        // Bun top
+        ctx.fillStyle = '#c8860a';
+        ctx.fillRect(-7*p, -4*p, 14*p, 3*p);
+        // Bun inner (lighter)
+        ctx.fillStyle = '#f5deb3';
+        ctx.fillRect(-6*p, -3*p, 12*p, 2*p);
+        // Sausage
+        ctx.fillStyle = '#b94040';
+        ctx.fillRect(-6*p, -1*p, 12*p, 2*p);
+        // Sausage highlight
+        ctx.fillStyle = '#e06060';
+        ctx.fillRect(-5*p, -1*p, 10*p, 1*p);
+        // Mustard squiggle
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fillRect(-4*p, 0, 2*p, 1*p);
+        ctx.fillRect(-1*p, 0, 2*p, 1*p);
+        ctx.fillRect(2*p, 0, 2*p, 1*p);
+        // Bun bottom
+        ctx.fillStyle = '#c8860a';
+        ctx.fillRect(-7*p, 1*p, 14*p, 3*p);
+
+        ctx.restore();
+    }
+}
+
+class SeekingMissile {
+    constructor(x, y, targetDuck) {
+        this.x = x;
+        this.y = y;
+        this.targetDuck = targetDuck;
+        this.isDead = false;
+        this.fullyDead = false;
+        this.particles = null;
+        // Elliptical path oscillation tracking
+        this.age = 0;
+        this.ellipsePhase = Math.random() * Math.PI * 2; // random start phase
+        this.ellipseAmp = 30 + Math.random() * 40;       // horizontal wobble amount
+        this.speed = 400; // 2x duck's base speed
+    }
+
+    update(dt) {
+        if (this.isDead) {
+            if (this.particles) {
+                let allDead = true;
+                this.particles.forEach(p => {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.life -= dt;
+                    if (p.life > 0) allDead = false;
+                });
+                if (allDead) this.fullyDead = true;
+            } else {
+                this.fullyDead = true;
+            }
+            return;
+        }
+
+        this.age += dt;
+
+        // If target is gone, retarget a new alive duck
+        if (!this.targetDuck || this.targetDuck.isDead) {
+            let aliveDucks = gameState.ducks.filter(d => !d.isDead);
+            if (aliveDucks.length > 0) {
+                this.targetDuck = aliveDucks[Math.floor(Math.random() * aliveDucks.length)];
+            } else {
+                // No ducks left, fly off screen
+                this.y -= this.speed * dt;
+                if (this.y < -100) this.fullyDead = true;
+                return;
+            }
+        }
+
+        let tx = this.targetDuck.x + this.targetDuck.width / 2;
+        let ty = this.targetDuck.y + this.targetDuck.height / 2;
+
+        let dx = tx - this.x;
+        let dy = ty - this.y;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist < 40) {
+            // Hit!
+            this.targetDuck.isDead = true;
+            this.targetDuck.particles = [];
+            for (let i = 0; i < 20; i++) {
+                this.targetDuck.particles.push({
+                    x: this.targetDuck.x + Math.random() * this.targetDuck.width,
+                    y: this.targetDuck.y + Math.random() * this.targetDuck.height,
+                    vx: (Math.random() - 0.5) * 400,
+                    vy: (Math.random() - 0.5) * 400,
+                    size: 4 + Math.random() * 8,
+                    life: 0.5 + Math.random() * 0.5,
+                    color: Math.random() > 0.5 ? '#ff4444' : '#ffffff'
+                });
+            }
+            let pointsAwarded = 500;
+            gameState.score += pointsAwarded;
+            gameState.killCount++;
+            gameState.sessionKills++;
+            gameState.floatingTexts.push({
+                x: this.targetDuck.x + this.targetDuck.width / 2,
+                y: this.targetDuck.y,
+                text: '+' + pointsAwarded,
+                life: 2.0,
+                maxLife: 2.0
+            });
+            updateUI();
+            this.isDead = true;
+            // Small rocket explosion
+            this.particles = [];
+            for (let i = 0; i < 15; i++) {
+                this.particles.push({
+                    x: this.x, y: this.y,
+                    vx: (Math.random() - 0.5) * 300,
+                    vy: (Math.random() - 0.5) * 300,
+                    size: 3 + Math.random() * 5,
+                    life: 0.3 + Math.random() * 0.3,
+                    color: ['#f44336', '#ff9800', '#ffffff'][Math.floor(Math.random() * 3)]
+                });
+            }
+            return;
+        }
+
+        // Move toward target with elliptical wobble perpendicular to direction
+        let nx = dx / dist;
+        let ny = dy / dist;
+        // Perpendicular
+        let px = -ny;
+        let py = nx;
+        let wobble = Math.sin(this.age * 6 + this.ellipsePhase) * this.ellipseAmp;
+
+        this.x += (nx * this.speed + px * wobble) * dt;
+        this.y += (ny * this.speed + py * wobble) * dt;
+    }
+
+    draw(ctx) {
+        if (this.isDead) {
+            if (this.particles) {
+                this.particles.forEach(p => {
+                    if (p.life > 0) {
+                        ctx.fillStyle = p.color;
+                        ctx.globalAlpha = Math.max(0, p.life);
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                ctx.globalAlpha = 1.0;
+            }
+            return;
+        }
+
+        // Rotate toward target
+        let angle = 0;
+        if (this.targetDuck && !this.targetDuck.isDead) {
+            let tx = this.targetDuck.x + this.targetDuck.width / 2;
+            let ty = this.targetDuck.y + this.targetDuck.height / 2;
+            angle = Math.atan2(ty - this.y, tx - this.x) + Math.PI / 2;
+        }
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(angle);
+
+        let p = 3;
+        // Body - white
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-p, -3*p, 2*p, 6*p);
+        // Nose cone - red
+        ctx.fillStyle = '#f44336';
+        ctx.fillRect(-p, -5*p, 2*p, 2*p);
+        // Red stripe
+        ctx.fillStyle = '#f44336';
+        ctx.fillRect(-p, 0, 2*p, p);
+        // Fins - red
+        ctx.fillRect(-3*p, 2*p, 2*p, 2*p); // left fin
+        ctx.fillRect(p, 2*p, 2*p, 2*p);    // right fin
+        // Exhaust glow
+        ctx.fillStyle = '#ff9800';
+        ctx.fillRect(-p+1, 3*p, 2*p-2, p);
+
+        ctx.restore();
+    }
+}
 class Projectile {
     constructor(startX, startY, targetX, targetY, targetDuck, hitSun, targetAirplane = null, targetTiger = null, targetEagle = null, isGreen = false) {
         this.startX = startX;
@@ -714,10 +959,15 @@ class Projectile {
                 gameState.tigers.push(new Tiger(duck.x, duck.y, duckSpeed));
             }
 
-            // Eagle drop object with 5% chance
+            // Eagle drop with 5% chance
             if (Math.random() < 0.05) {
                 let duckSpeed = Math.hypot(duck.vx, duck.vy);
                 gameState.eagles.push(new EaglePowerUp(duck.x, duck.y, duckSpeed));
+            }
+            // Hotdog drop with 5% chance (independent of eagle)
+            if (Math.random() < 0.05) {
+                let duckSpeed = Math.hypot(duck.vx, duck.vy);
+                gameState.hotdogs.push(new HotdogPowerUp(duck.x, duck.y, duckSpeed));
             }
 
             updateUI();
@@ -936,6 +1186,11 @@ function handleShoot(event) {
             gameState.eagles.push(new EaglePowerUp(canvas.width / 2 - 40, 0, 500));
         }
 
+        if (gameState.portraitClicks === 6) {
+            // Spawn Hotdog at top middle of the screen
+            gameState.hotdogs.push(new HotdogPowerUp(canvas.width / 2 - 30, 0, 500));
+        }
+
         if (gameState.portraitClicks >= 13) {
             triggerWin();
             return;
@@ -967,6 +1222,16 @@ function handleShoot(event) {
     let startX = gunX + muzzleLocalX * Math.cos(currentAimAngle) - muzzleLocalY * Math.sin(currentAimAngle);
     let startY = gunY + muzzleLocalX * Math.sin(currentAimAngle) + muzzleLocalY * Math.cos(currentAimAngle);
 
+    // Hotdog power-up: fire a duck-seeking missile at a random living duck (placed here so startX/startY are valid)
+    if (gameState.hotdogPowerUpActive && gameState.seekingMissiles.filter(m => !m.isDead).length < 4) {
+        // Pick any alive duck as target (regardless of isTargeted)
+        let aliveDucks = gameState.ducks.filter(d => !d.isDead);
+        if (aliveDucks.length > 0) {
+            let target = aliveDucks[Math.floor(Math.random() * aliveDucks.length)];
+            gameState.seekingMissiles.push(new SeekingMissile(startX, startY, target));
+        }
+    }
+
     shots.forEach(offset => {
         let currentX = x + offset.offsetX;
         let currentY = y + offset.offsetY;
@@ -983,7 +1248,34 @@ function handleShoot(event) {
         }
 
         if (!hitSun) {
-            // Check eagles first
+            for (let i = gameState.hotdogs.length - 1; i >= 0; i--) {
+                const hdog = gameState.hotdogs[i];
+                if (!hdog.isDead && Math.abs(currentX - (hdog.x + hdog.width / 2)) <= hdog.width / 2 &&
+                    Math.abs(currentY - (hdog.y + hdog.height / 2)) <= hdog.height / 2) {
+                    // Hotdog hit! Activate missile power-up
+                    hdog.isDead = true;
+                    hdog.particles = [];
+                    for (let i = 0; i < 15; i++) {
+                        hdog.particles.push({
+                            x: hdog.x + hdog.width / 2, y: hdog.y + hdog.height / 2,
+                            vx: (Math.random() - 0.5) * 200, vy: (Math.random() - 0.5) * 200,
+                            size: 4 + Math.random() * 5, life: 0.4 + Math.random() * 0.3,
+                            color: ['#c8860a', '#ffeb3b', '#f5deb3'][Math.floor(Math.random() * 3)]
+                        });
+                    }
+                    gameState.hotdogPowerUpActive = true;
+                    gameState.hotdogPowerUpTimer = 10.0;
+                    gameState.hotdogPowerUpEndRound = gameState.round + 1;
+                    gameState.ammo += 5;
+                    if (!cyberpunkSource && cyberpunkBuffer) {
+                        cyberpunkSource = playSound(cyberpunkBuffer, 0.6, true);
+                    }
+                    updateUI();
+                    break;
+                }
+            }
+
+            // Check eagles
             for (let i = gameState.eagles.length - 1; i >= 0; i--) {
                 const eagle = gameState.eagles[i];
                 if (!eagle.isDead && Math.abs(currentX - (eagle.x + eagle.width / 2)) <= eagle.width / 2 &&
@@ -1073,6 +1365,11 @@ function triggerGameOver() {
         sirenSource.disconnect();
         sirenSource = null;
     }
+    if (cyberpunkSource) {
+        cyberpunkSource.stop();
+        cyberpunkSource.disconnect();
+        cyberpunkSource = null;
+    }
     somberSource = playSound(somberBuffer, 0.8, true);
 
     // Delay displaying reset button by 2 seconds to absorb the impact
@@ -1095,6 +1392,11 @@ function triggerWin() {
         sirenSource.stop();
         sirenSource.disconnect();
         sirenSource = null;
+    }
+    if (cyberpunkSource) {
+        cyberpunkSource.stop();
+        cyberpunkSource.disconnect();
+        cyberpunkSource = null;
     }
     cheerfulSource = playSound(cheerfulBuffer, 0.8, true);
 
@@ -1206,6 +1508,26 @@ function spawnBuildings(roundNum) {
     }
 }
 
+function spawnHills() {
+    if (!gameState.hills) gameState.hills = [];
+
+    // Spawn 2-4 hills of random width and height
+    let numHills = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < numHills; i++) {
+        let hillW = 50 + Math.random() * 150;  // minimum 50px wide, up to 200px
+        let hillH = 30 + Math.random() * 80;   // 30-110px tall
+        let hillX = Math.random() * (canvas.width - hillW + hillW * 0.5) - hillW * 0.25;
+        // Slightly different greens for variety
+        let green = Math.floor(60 + Math.random() * 60);
+        gameState.hills.push({
+            x: hillX,
+            width: hillW,
+            height: hillH,
+            color: `hsl(${110 + Math.floor(Math.random() * 30)}, ${50 + Math.floor(Math.random() * 30)}%, ${green * 0.4}%)`
+        });
+    }
+}
+
 // Game Loop
 function gameLoop(timestamp) {
     // Calculate delta time in seconds
@@ -1221,6 +1543,18 @@ function gameLoop(timestamp) {
                 sirenSource.stop();
                 sirenSource.disconnect();
                 sirenSource = null;
+            }
+        }
+    }
+
+    if (gameState.hotdogPowerUpActive) {
+        gameState.hotdogPowerUpTimer -= dt;
+        if (gameState.hotdogPowerUpTimer <= 0 || gameState.round >= gameState.hotdogPowerUpEndRound) {
+            gameState.hotdogPowerUpActive = false;
+            if (cyberpunkSource) {
+                cyberpunkSource.stop();
+                cyberpunkSource.disconnect();
+                cyberpunkSource = null;
             }
         }
     }
@@ -1549,6 +1883,9 @@ function gameLoop(timestamp) {
                 gameState.phase = 'SPAWN';
                 gameState.round++;
                 spawnBuildings(gameState.round);
+                if (gameState.round % 5 === 0) {
+                    spawnHills();
+                }
                 document.getElementById('round-display').innerText = 'R=' + gameState.round;
             }
         }
@@ -1674,8 +2011,27 @@ function gameLoop(timestamp) {
         return; // Don't draw UI or grass
     }
 
-    // Draw background buildings (skyline) before grass
+    // Draw background hills (behind buildings)
     let grassLevel = canvas.height - (canvas.height * 0.12);
+    if (gameState.hills) {
+        gameState.hills.forEach(h => {
+            let hBaseY = grassLevel; // Base exactly at grass level
+            ctx.fillStyle = h.color;
+            ctx.beginPath();
+            ctx.moveTo(h.x, hBaseY);
+            // Smooth elliptical hill arc
+            ctx.bezierCurveTo(
+                h.x, hBaseY - h.height,
+                h.x + h.width, hBaseY - h.height,
+                h.x + h.width, hBaseY
+            );
+            ctx.closePath();
+            ctx.fill();
+        });
+    }
+
+    // Draw background buildings (skyline) before grass
+    if (!grassLevel) grassLevel = canvas.height - (canvas.height * 0.12);
     if (gameState.buildings) {
         gameState.buildings.forEach(b => {
             let bY = Math.floor(grassLevel - b.height + 5); // Sink slightly into grass
@@ -1749,11 +2105,21 @@ function gameLoop(timestamp) {
         eagle.update(dt);
         eagle.draw(ctx);
     });
+    gameState.eagles = gameState.eagles.filter(eagle => eagle.y < canvas.height + 100 && eagle.y > -200);
 
-    // Check Eagles moving far out of bounds (quiet despawn with no effects)
-    gameState.eagles = gameState.eagles.filter(eagle => {
-        return eagle.y < canvas.height + 100 && eagle.y > -200;
+    // Update & Draw Hotdogs
+    gameState.hotdogs.forEach(h => {
+        h.update(dt);
+        h.draw(ctx);
     });
+    gameState.hotdogs = gameState.hotdogs.filter(h => h.y < canvas.height + 100 && h.y > -200);
+
+    // Update & Draw Seeking Missiles
+    gameState.seekingMissiles.forEach(m => {
+        m.update(dt);
+        m.draw(ctx);
+    });
+    gameState.seekingMissiles = gameState.seekingMissiles.filter(m => !m.fullyDead);
 
     // Update & Draw Projectiles ON TOP of grass and foreground
     gameState.projectiles.forEach(p => {
@@ -1856,6 +2222,12 @@ function gameLoop(timestamp) {
         ctx.translate(pCenterX + shakeDir, pCenterY);
         ctx.scale(1.2, 1.2);
         ctx.translate(-pCenterX, -pCenterY);
+    } else if (gameState.hotdogPowerUpActive) {
+        let pCenterX = portraitX + 8 * dSize;
+        let pCenterY = portraitY + 7.5 * dSize;
+        ctx.translate(pCenterX, pCenterY);
+        ctx.scale(1.5, 1.5);
+        ctx.translate(-pCenterX, -pCenterY);
     }
 
     // Portrait Background Box
@@ -1923,6 +2295,70 @@ function gameLoop(timestamp) {
     if (gameState.powerUpActive) {
         ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
         ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
+    }
+
+    if (gameState.hotdogPowerUpActive) {
+        // Red cyberpunk visor glasses
+        // Bridge
+        ctx.fillStyle = '#111';
+        ctx.fillRect(portraitX + 7 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+        // Left lens
+        ctx.fillStyle = '#f44336';
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 5 * dSize, 3 * dSize, 2 * dSize);
+        // Right lens
+        ctx.fillRect(portraitX + 9 * dSize, portraitY + 5 * dSize, 3 * dSize, 2 * dSize);
+        // Lens inner glow highlight
+        ctx.fillStyle = '#ff8a80';
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 5 * dSize, 1 * dSize, 1 * dSize);
+        ctx.fillRect(portraitX + 9 * dSize, portraitY + 5 * dSize, 1 * dSize, 1 * dSize);
+        // Frame arms
+        ctx.fillStyle = '#111';
+        ctx.fillRect(portraitX + 3 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
+        ctx.fillRect(portraitX + 12 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
+
+        // --- Hotdog eating animation (4 frames @ 300ms each, loops) ---
+        // Frame 0: Full hotdog beside mouth, closed
+        // Frame 1: Hotdog at mouth, mouth open wide (approaching bite)
+        // Frame 2: Half eaten, mouth closed, chewing
+        // Frame 3: Tiny stub, another bite open
+        let eatFrame = Math.floor(timestamp / 300) % 4;
+
+        // Mouth override for eating (overwrite mouth drawn above)
+        ctx.fillStyle = '#4e342e';
+        if (eatFrame === 0 || eatFrame === 2) {
+            // Closed smug chewing
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 10 * dSize, 4 * dSize, 1 * dSize);
+        } else {
+            // Wide open bite
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 3 * dSize);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 1 * dSize);
+        }
+
+        // Hotdog drawn to right of mouth, shrinking each frame
+        let hdp = 6; // 2x larger (was 3)
+        let hdOffsets = [
+            { x: portraitX + 13 * dSize, remaining: 5 },
+            { x: portraitX + 10 * dSize, remaining: 5 },
+            { x: portraitX + 11 * dSize, remaining: 3 },
+            { x: portraitX + 12 * dSize, remaining: 1 }
+        ];
+        let hd = hdOffsets[eatFrame];
+        let hy = portraitY + 9 * dSize - hdp/2; // better vertical centering for larger dog
+
+        if (hd.remaining > 0) {
+            let hdW = hd.remaining * hdp;
+            ctx.fillStyle = '#c8860a';
+            ctx.fillRect(hd.x, hy, hdW, hdp);
+            ctx.fillStyle = '#b94040';
+            ctx.fillRect(hd.x, hy + hdp, hdW, hdp);
+            ctx.fillStyle = '#c8860a';
+            ctx.fillRect(hd.x, hy + 2 * hdp, hdW, hdp);
+            if (hd.remaining >= 3) {
+                ctx.fillStyle = '#ffeb3b';
+                ctx.fillRect(hd.x + hdp, hy + hdp, hdp, hdp);
+            }
+        }
     }
 
     ctx.restore();
@@ -2056,11 +2492,15 @@ function startGame() {
 
     // Background buildings & airplanes reset
     gameState.buildings = [];
+    gameState.hills = [];
+    gameState.hotdogs = [];
+    gameState.seekingMissiles = [];
     gameState.airplanes = [];
     gameState.tigers = [];
     gameState.floatingTexts = [];
     gameState.lastAirplaneTime = performance.now();
     spawnBuildings(1);
+    spawnHills();
 
     if (somberSource) {
         somberSource.stop();
@@ -2076,6 +2516,11 @@ function startGame() {
         sirenSource.stop();
         sirenSource.disconnect();
         sirenSource = null;
+    }
+    if (cyberpunkSource) {
+        cyberpunkSource.stop();
+        cyberpunkSource.disconnect();
+        cyberpunkSource = null;
     }
 
     startBGM(currentLevel);
@@ -2116,6 +2561,11 @@ function resetToStart(e) {
         sirenSource.stop();
         sirenSource.disconnect();
         sirenSource = null;
+    }
+    if (cyberpunkSource) {
+        cyberpunkSource.stop();
+        cyberpunkSource.disconnect();
+        cyberpunkSource = null;
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
