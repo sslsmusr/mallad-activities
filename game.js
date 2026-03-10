@@ -1547,6 +1547,8 @@ function spawnHills() {
 
 // Game Loop
 function gameLoop(timestamp) {
+    if (gameState.phase === 'SHADOW') return; // STOP the loop during shadowy encounter
+
     // Calculate delta time in seconds
     let dt = (timestamp - gameState.lastTime) / 1000;
     if (dt > 0.1) dt = 0.1; // Cap dt to avoid huge jumps
@@ -2751,8 +2753,14 @@ function drawShadowyMonk(ctx, frame, timestamp) {
 }
 
 function showShadowyScreen(round) {
-    // Save current game state before entering the shadowy figure screen
-    savedGameState = JSON.parse(JSON.stringify(gameState));
+    // Save current game state primitives before entering the shadowy figure screen
+    savedGameState = {};
+    for (let key in gameState) {
+        // Only clone primitive values (strings, numbers, booleans)
+        if (typeof gameState[key] !== 'object' || gameState[key] === null) {
+            savedGameState[key] = gameState[key];
+        }
+    }
     
     gameState.phase = 'SHADOW';
     shadowyScreen.style.display = 'flex';
@@ -2761,17 +2769,12 @@ function showShadowyScreen(round) {
     const charToUnlock = (round / 10) + 1; // 10 -> 2 (Ascetic), 20 -> 3 (Arbitrator)
     
     // Detect if this is a first-time unlock
-    // gameState.maxRoundReached was already updated to round+1.
-    // So if the previous max was <= round, it's a new unlock.
     let prevMax = parseInt(localStorage.getItem('mallard_max_round_prev') || '0');
     const isNewUnlock = (prevMax < round);
-    
-    // Cache the current max for next time comparison (logic helper)
     localStorage.setItem('mallard_max_round_prev', round.toString());
     
     const portraitContainer = document.getElementById('shadowy-portrait-container');
 
-    // Set text and portrait visibility
     if (isNewUnlock) {
         portraitContainer.style.display = 'flex';
         if (round === 10) {
@@ -2786,15 +2789,12 @@ function showShadowyScreen(round) {
         shadowyText.innerText = arnoldQuotes[Math.floor(Math.random() * arnoldQuotes.length)];
     }
     
-    // Draw portrait
     if (isNewUnlock) {
         const pCtx = shadowyCharCanvas.getContext('2d');
         pCtx.clearRect(0, 0, 120, 120);
-        // Draw centered and large
         drawPortrait(pCtx, 12, 12, charToUnlock, performance.now(), 6, false, false, false, true, false);
     }
     
-    // Animation loop for monk
     const mCtx = shadowyMonkCanvas.getContext('2d');
     let startTime = performance.now();
     
@@ -2806,7 +2806,6 @@ function showShadowyScreen(round) {
     }
     shadowyAnimHandle = requestAnimationFrame(anim);
     
-    // Show continue button after 2 seconds
     setTimeout(() => {
         shadowyContinue.style.display = 'block';
     }, 2000);
@@ -2818,22 +2817,32 @@ shadowyContinue.onclick = (e) => {
     shadowyScreen.style.display = 'none';
     cancelAnimationFrame(shadowyAnimHandle);
     
-    // Restore the saved game state
+    // Restore the saved game state (primitives)
     if (savedGameState) {
-        // Carry over the current maxRoundReached if it was updated during the round end
-        let currentMax = gameState.maxRoundReached;
+        // We want to keep the current round and max round increment if it just happened
         let currentRound = gameState.round;
+        let currentMax = gameState.maxRoundReached;
         
         Object.assign(gameState, savedGameState);
         
-        gameState.maxRoundReached = currentMax;
         gameState.round = currentRound;
+        gameState.maxRoundReached = currentMax;
         savedGameState = null;
     }
     
+    // Ensure transient arrays are empty for the new round
+    gameState.ducks = [];
+    gameState.projectiles = [];
+    gameState.airplanes = [];
+    gameState.tigers = [];
+    gameState.eagles = [];
+    gameState.hotdogs = [];
+    gameState.seekingMissiles = [];
+    gameState.floatingTexts = [];
+    
     // Re-initialize state for the next round
     gameState.phase = 'SPAWN';
-    gameState.lastTime = performance.now(); // Reset lastTime to avoid huge delta
+    gameState.lastTime = performance.now(); 
     
     // Re-build the world
     spawnBuildings(gameState.round);
@@ -2844,6 +2853,6 @@ shadowyContinue.onclick = (e) => {
     document.getElementById('round-display').innerText = 'R=' + gameState.round;
     updateUI();
     
-    // RESTART the main game loop
+    // RESTART the main game loop safely
     requestAnimationFrame(gameLoop);
 };
