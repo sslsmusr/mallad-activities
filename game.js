@@ -3,15 +3,18 @@ const ctx = canvas.getContext('2d');
 const scoreDisplay = document.getElementById('score-display');
 const ammoDisplay = document.getElementById('ammo-display');
 
+// Cache version for all assets
+const CACHE_VERSION = 55;
+
 // Load Assets
 const duckImg1 = new Image();
-duckImg1.src = 'duck1.png';
+duckImg1.src = `duck1.png?v=${CACHE_VERSION}`;
 const duckImg2 = new Image();
-duckImg2.src = 'duck2.png';
+duckImg2.src = `duck2.png?v=${CACHE_VERSION}`;
 const dogImg1 = new Image();
-dogImg1.src = 'dog1.png?v=43';
+dogImg1.src = `dog1.png?v=${CACHE_VERSION}`;
 const dogImg2 = new Image();
-dogImg2.src = 'dog2.png?v=43';
+dogImg2.src = `dog2.png?v=${CACHE_VERSION}`;
 
 // Audio Context setup for sound effects
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -37,84 +40,84 @@ let winTextLines = [];
 let winTimer = 0;
 
 // Fetch game over text
-fetch('death_text.txt')
+fetch(`death_text.txt?v=${CACHE_VERSION}`)
     .then(r => r.text())
     .then(text => { deathTextLines = text.split('\n'); })
     .catch(e => console.error('Error loading death text', e));
 
-fetch('win_text.txt')
+fetch(`win_text.txt?v=${CACHE_VERSION}`)
     .then(r => r.text())
     .then(text => { winTextLines = text.split('\n'); })
     .catch(e => console.error('Error loading win text', e));
 
 // Fetch and load the generated retro quack
-fetch('quack.wav')
+fetch(`quack.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { quackBuffer = buffer; })
     .catch(e => console.error('Error loading quack sound:', e));
 
-fetch('womp.wav')
+fetch(`womp.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { wompBuffer = buffer; })
     .catch(e => console.error('Error loading womp sound:', e));
 
-fetch('snicker.wav')
+fetch(`snicker.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { snickerBuffer = buffer; })
     .catch(e => console.error('Error loading snicker sound:', e));
 
-fetch('jingle.wav')
+fetch(`jingle.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { jingleBuffer = buffer; })
     .catch(e => console.error('Error loading jingle sound:', e));
 
-fetch('balkan_loop.wav')
+fetch(`balkan_loop.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { bgmBuffer = buffer; })
     .catch(e => console.error('Error loading balkan loop:', e));
 
-fetch('somber.wav')
+fetch(`somber.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { somberBuffer = buffer; })
     .catch(e => console.error('Error loading somber melody:', e));
 
-fetch('cheerful.wav')
+fetch(`cheerful.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { cheerfulBuffer = buffer; })
     .catch(e => console.error('Error loading cheerful melody:', e));
 
-fetch('siren.wav')
+fetch(`siren.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { sirenBuffer = buffer; })
     .catch(e => console.error('Error loading siren:', e));
 
-fetch('boom.wav')
+fetch(`boom.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { boomBuffer = buffer; })
     .catch(e => console.error('Error loading boom:', e));
 
-fetch('cyberpunk.wav')
+fetch(`cyberpunk.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { cyberpunkBuffer = buffer; })
     .catch(e => console.error('Error loading cyberpunk melody:', e));
 
-fetch('hymn.wav')
+fetch(`hymn.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { hymnBuffer = buffer; })
     .catch(e => console.error('Error loading hymn music:', e));
 
-fetch('synthwave.wav')
+fetch(`synthwave.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
     .then(buffer => { synthwaveBuffer = buffer; })
