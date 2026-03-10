@@ -37,6 +37,22 @@
             </div>
         </div>
 
+        <!-- Shadowy Figure Screen -->
+        <div id="shadowy-screen" style="display: none;">
+            <div id="shadowy-content">
+                <div id="shadowy-portrait-container">
+                    <canvas id="shadowy-char-canvas" width="120" height="120"></canvas>
+                </div>
+                <div id="shadowy-main">
+                    <canvas id="shadowy-monk-canvas" width="300" height="400"></canvas>
+                    <div id="shadowy-bubble">
+                        <p id="shadowy-text"></p>
+                    </div>
+                    <button id="shadowy-continue" style="display: none;">Continue</button>
+                </div>
+            </div>
+        </div>
+
         <!-- The UI Layer (score, ammo, etc.) -->
         <div id="ui-layer">
             <div id="lives-display"></div>
@@ -61,7 +77,7 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <script type="module" src="game.js?v=44"></script>
+    <script type="module" src="game.js?v=47"></script>
 </body>
 
 </html>

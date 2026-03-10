@@ -242,12 +242,14 @@ let gameState = {
     sunClicks: 0,
     infiniteAmmo: false
 };
-
 const motivationalQuotes = [
     "Shoot for the moon, land in the dirt.",
     "Practice makes perfect... eventually.",
     "At least you're consistent.",
+    "Don't quit now!",
     "The ducks are judging you.",
+    "You're doing... okay.",
+    "Is that your best?",
     "Believe in yourself. I don't.",
     "Keep calm and miss again.",
     "Participation trophy earned!",
@@ -255,6 +257,29 @@ const motivationalQuotes = [
     "Dream big, aim terribly.",
     "Your best is almost adequate."
 ];
+
+const arnoldQuotes = [
+    "I'll be back.",
+    "Get to the chopper!",
+    "Hasta la vista, baby.",
+    "If it bleeds, we can kill it.",
+    "It's not a tumor!",
+    "Put the cookie down! NOW!",
+    "Come with me if you want to live.",
+    "You're luggage.",
+    "See you at the party, Richter!",
+    "Relax, Alright? My mission is to protect you."
+];
+
+const shadowyScreen = document.getElementById('shadowy-screen');
+const shadowyMonkCanvas = document.getElementById('shadowy-monk-canvas');
+const shadowyCharCanvas = document.getElementById('shadowy-char-canvas');
+const shadowyText = document.getElementById('shadowy-text');
+const shadowyContinue = document.getElementById('shadowy-continue');
+let shadowyAnimFrame = 0;
+let shadowyAnimHandle = null;
+let savedGameState = null;
+
 
 // Handle resizing to keep logical resolution crisp while filling screen
 function resizeCanvas() {
@@ -1777,6 +1802,11 @@ function gameLoop(timestamp) {
         let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
         startBGM(currentLevel); // Make sure the music speed updates each round!
 
+        spawnBuildings(gameState.round);
+        if (gameState.round % 5 === 0) {
+            spawnHills();
+        }
+
         gameState.phase = 'PLAY';
     } else if (gameState.phase === 'PLAY') {
         if (gameState.ducks.length === 0) {
@@ -1802,12 +1832,19 @@ function gameLoop(timestamp) {
             if (gameState.round >= 80) {
                 triggerWin();
             } else {
-                gameState.phase = 'SPAWN';
+                let finishedRound = gameState.round;
                 gameState.round++;
                 if (gameState.round > gameState.maxRoundReached) {
                     gameState.maxRoundReached = gameState.round;
                     localStorage.setItem('mallard_max_round', gameState.maxRoundReached.toString());
                 }
+                
+                if (finishedRound % 10 === 0) {
+                    showShadowyScreen(finishedRound);
+                    return;
+                }
+
+                gameState.phase = 'SPAWN';
                 spawnBuildings(gameState.round);
                 if (gameState.round % 5 === 0) {
                     spawnHills();
@@ -2641,3 +2678,172 @@ function drawWeapon(ctx, gunX, gunY, aimAngle, charId, isGolden, isPowerActive, 
     }
     ctx.restore();
 }
+
+function drawShadowyMonk(ctx, frame, timestamp) {
+    const w = shadowyMonkCanvas.width;
+    const h = shadowyMonkCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    
+    let dSize = 15; // Increased size
+    let centerX = w / 2;
+    let centerY = h / 2 + 50;
+    
+    // Animation offset
+    let yOff = Math.sin(timestamp / 200) * 8;
+    let mouthStep = (frame % 3);
+
+    ctx.save();
+    ctx.translate(centerX, centerY + yOff);
+    
+    // Body / Robe (Jagged/Pixelated style)
+    ctx.fillStyle = "#1b5e20"; // Dark green
+    ctx.beginPath();
+    ctx.moveTo(-6 * dSize, 5 * dSize);
+    ctx.lineTo(6 * dSize, 5 * dSize);
+    ctx.lineTo(10 * dSize, 18 * dSize);
+    ctx.lineTo(-10 * dSize, 18 * dSize);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Hood (Trapezoid with rounded feel)
+    ctx.fillStyle = "#144317"; // Slightly darker hood
+    ctx.beginPath();
+    // Top of trapezoid (narrower)
+    ctx.moveTo(-4 * dSize, -10 * dSize);
+    ctx.lineTo(4 * dSize, -10 * dSize);
+    // Shoulders (wider)
+    ctx.lineTo(11 * dSize, 5 * dSize);
+    ctx.lineTo(-11 * dSize, 5 * dSize);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Add "rounding" to the top of the hood
+    ctx.beginPath();
+    ctx.arc(0, -9.5 * dSize, 4 * dSize, Math.PI, 0);
+    ctx.fill();
+    
+    // Face (Absolute Black shadow)
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.moveTo(-3.5 * dSize, -7 * dSize);
+    ctx.lineTo(3.5 * dSize, -7 * dSize);
+    ctx.lineTo(4.5 * dSize, 3 * dSize);
+    ctx.lineTo(-4.5 * dSize, 3 * dSize);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Red Dash Eyes (Glowing red dashes)
+    ctx.fillStyle = "#ff1744"; // Vibrant red
+    let eyeGlow = 0.7 + 0.3 * Math.sin(timestamp / 100);
+    ctx.globalAlpha = eyeGlow;
+    // Two red horizontal dashes
+    ctx.fillRect(-2.5 * dSize, -3.5 * dSize, 1.8 * dSize, 0.4 * dSize); // Left eye
+    ctx.fillRect(0.7 * dSize, -3.5 * dSize, 1.8 * dSize, 0.4 * dSize);  // Right eye
+    ctx.globalAlpha = 1.0;
+
+    // Talking animation (Moving shadow mouth)
+    if (mouthStep > 0) {
+        ctx.fillStyle = "#050505";
+        ctx.fillRect(-1.5 * dSize, 1 * dSize - (mouthStep * 4), 3 * dSize, 1.5 * dSize);
+    }
+    
+    ctx.restore();
+}
+
+function showShadowyScreen(round) {
+    // Save current game state before entering the shadowy figure screen
+    savedGameState = JSON.parse(JSON.stringify(gameState));
+    
+    gameState.phase = 'SHADOW';
+    shadowyScreen.style.display = 'flex';
+    shadowyContinue.style.display = 'none';
+    
+    const charToUnlock = (round / 10) + 1; // 10 -> 2 (Ascetic), 20 -> 3 (Arbitrator)
+    
+    // Detect if this is a first-time unlock
+    // gameState.maxRoundReached was already updated to round+1.
+    // So if the previous max was <= round, it's a new unlock.
+    let prevMax = parseInt(localStorage.getItem('mallard_max_round_prev') || '0');
+    const isNewUnlock = (prevMax < round);
+    
+    // Cache the current max for next time comparison (logic helper)
+    localStorage.setItem('mallard_max_round_prev', round.toString());
+    
+    const portraitContainer = document.getElementById('shadowy-portrait-container');
+
+    // Set text and portrait visibility
+    if (isNewUnlock) {
+        portraitContainer.style.display = 'flex';
+        if (round === 10) {
+            shadowyText.innerText = "You have proven your skill. The Ascetic joins your cause. 'A simple life, a sharp mind... and a very large staff.'";
+        } else if (round === 20) {
+            shadowyText.innerText = "The laws of this land are brittle. The Arbitrator shall mend them. 'Justice is a flame that consumes the wicked.'";
+        } else {
+             shadowyText.innerText = "You continue to defy the odds, traveler. Your journey is far from over.";
+        }
+    } else {
+        portraitContainer.style.display = 'none';
+        shadowyText.innerText = arnoldQuotes[Math.floor(Math.random() * arnoldQuotes.length)];
+    }
+    
+    // Draw portrait
+    if (isNewUnlock) {
+        const pCtx = shadowyCharCanvas.getContext('2d');
+        pCtx.clearRect(0, 0, 120, 120);
+        // Draw centered and large
+        drawPortrait(pCtx, 12, 12, charToUnlock, performance.now(), 6, false, false, false, true, false);
+    }
+    
+    // Animation loop for monk
+    const mCtx = shadowyMonkCanvas.getContext('2d');
+    let startTime = performance.now();
+    
+    function anim(t) {
+        if (gameState.phase !== 'SHADOW') return;
+        shadowyAnimFrame = Math.floor((t - startTime) / 150);
+        drawShadowyMonk(mCtx, shadowyAnimFrame, t);
+        shadowyAnimHandle = requestAnimationFrame(anim);
+    }
+    shadowyAnimHandle = requestAnimationFrame(anim);
+    
+    // Show continue button after 2 seconds
+    setTimeout(() => {
+        shadowyContinue.style.display = 'block';
+    }, 2000);
+}
+
+shadowyContinue.onclick = (e) => {
+    if (e) e.stopPropagation();
+    
+    shadowyScreen.style.display = 'none';
+    cancelAnimationFrame(shadowyAnimHandle);
+    
+    // Restore the saved game state
+    if (savedGameState) {
+        // Carry over the current maxRoundReached if it was updated during the round end
+        let currentMax = gameState.maxRoundReached;
+        let currentRound = gameState.round;
+        
+        Object.assign(gameState, savedGameState);
+        
+        gameState.maxRoundReached = currentMax;
+        gameState.round = currentRound;
+        savedGameState = null;
+    }
+    
+    // Re-initialize state for the next round
+    gameState.phase = 'SPAWN';
+    gameState.lastTime = performance.now(); // Reset lastTime to avoid huge delta
+    
+    // Re-build the world
+    spawnBuildings(gameState.round);
+    if (gameState.round % 5 === 0) {
+        spawnHills();
+    }
+    
+    document.getElementById('round-display').innerText = 'R=' + gameState.round;
+    updateUI();
+    
+    // RESTART the main game loop
+    requestAnimationFrame(gameLoop);
+};
