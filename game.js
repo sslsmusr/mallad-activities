@@ -620,19 +620,51 @@ class EaglePowerUp {
             return;
         }
 
+        let timestamp = performance.now();
         ctx.save();
         ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
 
-        let p = 8;
-        ctx.globalAlpha = 0.8;
-        ctx.fillStyle = '#795548'; // Brown
-        ctx.fillRect(-3 * p, -2 * p, 6 * p, 5 * p);
-        ctx.fillStyle = '#fff'; // White head
-        ctx.fillRect(-3 * p, -5 * p, 6 * p, 3 * p);
-        ctx.fillStyle = '#ffeb3b'; // Beak
-        ctx.fillRect(1 * p, -4 * p, 3 * p, 2 * p);
-        ctx.fillStyle = '#000'; // Eye
-        ctx.fillRect(-1 * p, -4 * p, p, p);
+        let p = 4;
+        // Flap animation
+        let flap = Math.sin(timestamp / 100) * 10;
+
+        // Draw Wings (White)
+        ctx.fillStyle = "#ffffff";
+        // Left Wing
+        ctx.beginPath();
+        ctx.moveTo(-4 * p, 0);
+        ctx.lineTo(-12 * p, -10 * p + flap);
+        ctx.lineTo(-12 * p, 5 * p + flap);
+        ctx.closePath();
+        ctx.fill();
+        // Right Wing
+        ctx.beginPath();
+        ctx.moveTo(4 * p, 0);
+        ctx.lineTo(12 * p, -10 * p + flap);
+        ctx.lineTo(12 * p, 5 * p + flap);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw Money Stack (Green)
+        ctx.fillStyle = "#4caf50"; // Main green
+        ctx.fillRect(-6 * p, -4 * p, 12 * p, 8 * p);
+        
+        // Darker green edges/shadow
+        ctx.fillStyle = "#2e7d32";
+        ctx.fillRect(-6 * p, 2 * p, 12 * p, 2 * p); // Bottom edge
+        ctx.fillRect(4 * p, -4 * p, 2 * p, 8 * p); // Right edge
+        
+        // White details (Highlights/Lines for bills)
+        ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+        ctx.fillRect(-4 * p, -2 * p, 8 * p, 1 * p);
+        ctx.fillRect(-4 * p, 1 * p, 8 * p, 1 * p);
+        
+        // Dollar sign center
+        ctx.fillStyle = "#ffffff";
+        ctx.font = `bold ${10 * p}px Arial`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("$", 0, 0);
 
         ctx.restore();
     }
@@ -725,6 +757,7 @@ class SeekingMissile {
         this.ellipsePhase = Math.random() * Math.PI * 2; // random start phase
         this.ellipseAmp = 30 + Math.random() * 40;       // horizontal wobble amount
         this.speed = 400; // 2x duck's base speed
+        this.lastSpeedBump = 0;
     }
 
     update(dt) {
@@ -745,6 +778,12 @@ class SeekingMissile {
         }
 
         this.age += dt;
+        
+        // Increase speed by 10% every 100ms
+        while (this.age - this.lastSpeedBump >= 0.1) {
+            this.speed *= 1.1;
+            this.lastSpeedBump += 0.1;
+        }
 
         // If target is gone, retarget a new alive duck
         if (!this.targetDuck || this.targetDuck.isDead) {
