@@ -186,6 +186,21 @@ function playQuack(level) {
     source.start(0);
 }
 
+function addScore(base, x, y) {
+    let multiplier = (gameState.character === 3) ? 1.2 : 1.0;
+    let points = Math.floor(base * multiplier);
+    gameState.score += points;
+    gameState.floatingTexts.push({
+        x: x || canvas.width / 2,
+        y: y || canvas.height / 2,
+        text: "+" + points,
+        life: 2.0,
+        maxLife: 2.0
+    });
+    updateUI();
+    return points;
+}
+
 // Game State
 let gameState = {
     score: 0,
@@ -210,6 +225,7 @@ let gameState = {
     hotdogPowerUpActive: false,
     hotdogPowerUpTimer: 0,
     hotdogPowerUpEndRound: 0,
+    character: 1, // 1: Hoodie, 2: Priest, 3: Judge
     tigersKilled: 0,
     airplanesKilled: 0,
     lastAirplaneTime: 0,
@@ -739,18 +755,9 @@ class SeekingMissile {
                     color: Math.random() > 0.5 ? '#ff4444' : '#ffffff'
                 });
             }
-            let pointsAwarded = 500;
-            gameState.score += pointsAwarded;
+            addScore(500, this.targetDuck.x + this.targetDuck.width / 2, this.targetDuck.y);
             gameState.killCount++;
             gameState.sessionKills++;
-            gameState.floatingTexts.push({
-                x: this.targetDuck.x + this.targetDuck.width / 2,
-                y: this.targetDuck.y,
-                text: '+' + pointsAwarded,
-                life: 2.0,
-                maxLife: 2.0
-            });
-            updateUI();
             this.isDead = true;
             // Small rocket explosion
             this.particles = [];
@@ -924,15 +931,7 @@ class Projectile {
                     color: Math.random() > 0.5 ? '#ffeb3b' : (Math.random() > 0.5 ? '#4caf50' : '#ff9800')
                 });
             }
-            let pointsAwarded = 500;
-            gameState.score += pointsAwarded;
-            gameState.floatingTexts.push({
-                x: duck.x + duck.width / 2,
-                y: duck.y,
-                text: "+" + pointsAwarded,
-                life: 2.0,
-                maxLife: 2.0
-            });
+            addScore(500, duck.x + duck.width / 2, duck.y);
             gameState.killCount++;
             gameState.sessionKills++;
 
@@ -974,6 +973,7 @@ class Projectile {
         } else if (this.targetAirplane && !this.targetAirplane.isDead) { // Airplane Hit!
             playSound(wompBuffer);
             this.targetAirplane.isDead = true;
+            addScore(500, this.targetAirplane.x + this.targetAirplane.width / 2, this.targetAirplane.y);
             gameState.ammo += 5; // Reward
             gameState.airplanesKilled++;
 
@@ -1004,17 +1004,8 @@ class Projectile {
         } else if (this.targetTiger && !this.targetTiger.isDead) { // Tiger Hit!
             playSound(snickerBuffer); // play funny sound
             this.targetTiger.isDead = true;
-            let pointsAwarded = 1000;
-            gameState.score += pointsAwarded;
-            gameState.floatingTexts.push({
-                x: this.targetTiger.x + this.targetTiger.width / 2,
-                y: this.targetTiger.y,
-                text: "+" + pointsAwarded,
-                life: 2.0,
-                maxLife: 2.0
-            });
+            addScore(1000, this.targetTiger.x + this.targetTiger.width / 2, this.targetTiger.y);
             gameState.tigersKilled++;
-            updateUI();
 
             let particles = [];
             for (let i = 0; i < 20; i++) {
@@ -2214,154 +2205,9 @@ function gameLoop(timestamp) {
     let portraitX = bgBoxX + 10;
     let portraitY = bgBoxY + 10;
 
-    ctx.save();
-    if (gameState.powerUpActive) {
-        let pCenterX = portraitX + 8 * dSize;
-        let pCenterY = portraitY + 7.5 * dSize;
-        let shakeDir = (Math.floor(timestamp / 100) % 2 === 0) ? 2 : -2;
-        ctx.translate(pCenterX + shakeDir, pCenterY);
-        ctx.scale(1.2, 1.2);
-        ctx.translate(-pCenterX, -pCenterY);
-    } else if (gameState.hotdogPowerUpActive) {
-        let pCenterX = portraitX + 8 * dSize;
-        let pCenterY = portraitY + 7.5 * dSize;
-        ctx.translate(pCenterX, pCenterY);
-        ctx.scale(1.5, 1.5);
-        ctx.translate(-pCenterX, -pCenterY);
-    }
-
-    // Portrait Background Box
-    ctx.fillStyle = "#424242";
-    ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
-
-    // Hoodie color calculation (Purple -> Green up to round 30)
-    let transitionProgress = Math.min(Math.max(gameState.round - 1, 0) / 29, 1.0);
-    // Purple setup: rgb(156, 39, 176)
-    // Green setup: rgb(76, 175, 80)
-    let hr = Math.floor(156 + (76 - 156) * transitionProgress);
-    let hg = Math.floor(39 + (175 - 39) * transitionProgress);
-    let hb = Math.floor(176 + (80 - 176) * transitionProgress);
-    let hoodieColor = `rgb(${hr}, ${hg}, ${hb})`;
-
-    // Skin (Face base)
-    ctx.fillStyle = "#ffcc80";
-
-    if (timestamp < gameState.baldUntil) {
-        // Bald man logic
-        // Draw a larger, exposed dome and wider skin base replacing the hoodie sides
-        ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 11 * dSize);
-
-        // Hoodie Shoulders Only
-        ctx.fillStyle = hoodieColor;
-        ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize); // Shoulders/neck area
-    } else {
-        // Standard Face
-        ctx.fillRect(portraitX + 4 * dSize, portraitY + 4 * dSize, 8 * dSize, 9 * dSize);
-
-        // Hoodie Main
-        ctx.fillStyle = hoodieColor;
-        ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 2 * dSize); // Top of hood
-        ctx.fillRect(portraitX + 2 * dSize, portraitY + 3 * dSize, 2 * dSize, 10 * dSize); // Left hood side
-        ctx.fillRect(portraitX + 12 * dSize, portraitY + 3 * dSize, 2 * dSize, 10 * dSize); // Right hood side
-        ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize); // Shoulders/neck area
-
-        // Hoodie Inner Shading / Drawstrings
-        ctx.fillStyle = `rgb(${Math.floor(hr * 0.6)}, ${Math.floor(hg * 0.6)}, ${Math.floor(hb * 0.6)})`;
-        ctx.fillRect(portraitX + 3 * dSize, portraitY + 4 * dSize, 1 * dSize, 9 * dSize); // Inner left shadow
-        ctx.fillRect(portraitX + 12 * dSize, portraitY + 4 * dSize, 1 * dSize, 9 * dSize); // Inner right shadow
-    }
-
-    // Eyes
-    ctx.fillStyle = "white";
-    ctx.fillRect(portraitX + 5 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
-    ctx.fillRect(portraitX + 9 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
-
-    ctx.fillStyle = "black"; // Pupils
-    ctx.fillRect(portraitX + 6 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
-    ctx.fillRect(portraitX + 9 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
-
-    // Player Mouth Animation (2 Frames)
-    ctx.fillStyle = "#4e342e"; // Dark inner mouth
-    let mouthOpen = Math.floor(timestamp / 300) % 2 === 0;
-    if (mouthOpen) {
-        ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 3 * dSize);
-        // Teeth
-        ctx.fillStyle = "white";
-        ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 1 * dSize);
-    } else {
-        ctx.fillRect(portraitX + 6 * dSize, portraitY + 10 * dSize, 4 * dSize, 1 * dSize);
-    }
-
-    if (gameState.powerUpActive) {
-        ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
-        ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
-    }
-
-    if (gameState.hotdogPowerUpActive) {
-        // Red cyberpunk visor glasses
-        // Bridge
-        ctx.fillStyle = '#111';
-        ctx.fillRect(portraitX + 7 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
-        // Left lens
-        ctx.fillStyle = '#f44336';
-        ctx.fillRect(portraitX + 4 * dSize, portraitY + 5 * dSize, 3 * dSize, 2 * dSize);
-        // Right lens
-        ctx.fillRect(portraitX + 9 * dSize, portraitY + 5 * dSize, 3 * dSize, 2 * dSize);
-        // Lens inner glow highlight
-        ctx.fillStyle = '#ff8a80';
-        ctx.fillRect(portraitX + 4 * dSize, portraitY + 5 * dSize, 1 * dSize, 1 * dSize);
-        ctx.fillRect(portraitX + 9 * dSize, portraitY + 5 * dSize, 1 * dSize, 1 * dSize);
-        // Frame arms
-        ctx.fillStyle = '#111';
-        ctx.fillRect(portraitX + 3 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
-        ctx.fillRect(portraitX + 12 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
-
-        // --- Hotdog eating animation (4 frames @ 300ms each, loops) ---
-        // Frame 0: Full hotdog beside mouth, closed
-        // Frame 1: Hotdog at mouth, mouth open wide (approaching bite)
-        // Frame 2: Half eaten, mouth closed, chewing
-        // Frame 3: Tiny stub, another bite open
-        let eatFrame = Math.floor(timestamp / 300) % 4;
-
-        // Mouth override for eating (overwrite mouth drawn above)
-        ctx.fillStyle = '#4e342e';
-        if (eatFrame === 0 || eatFrame === 2) {
-            // Closed smug chewing
-            ctx.fillRect(portraitX + 6 * dSize, portraitY + 10 * dSize, 4 * dSize, 1 * dSize);
-        } else {
-            // Wide open bite
-            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 3 * dSize);
-            ctx.fillStyle = 'white';
-            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 1 * dSize);
-        }
-
-        // Hotdog drawn to right of mouth, shrinking each frame
-        let hdp = 6; // 2x larger (was 3)
-        let hdOffsets = [
-            { x: portraitX + 13 * dSize, remaining: 5 },
-            { x: portraitX + 10 * dSize, remaining: 5 },
-            { x: portraitX + 11 * dSize, remaining: 3 },
-            { x: portraitX + 12 * dSize, remaining: 1 }
-        ];
-        let hd = hdOffsets[eatFrame];
-        let hy = portraitY + 9 * dSize - hdp/2; // better vertical centering for larger dog
-
-        if (hd.remaining > 0) {
-            let hdW = hd.remaining * hdp;
-            ctx.fillStyle = '#c8860a';
-            ctx.fillRect(hd.x, hy, hdW, hdp);
-            ctx.fillStyle = '#b94040';
-            ctx.fillRect(hd.x, hy + hdp, hdW, hdp);
-            ctx.fillStyle = '#c8860a';
-            ctx.fillRect(hd.x, hy + 2 * hdp, hdW, hdp);
-            if (hd.remaining >= 3) {
-                ctx.fillStyle = '#ffeb3b';
-                ctx.fillRect(hd.x + hdp, hy + hdp, hdp, hdp);
-            }
-        }
-    }
-
-    ctx.restore();
+    drawPortrait(ctx, portraitX, portraitY, gameState.character, timestamp, dSize, 
+                 timestamp < gameState.baldUntil, gameState.powerUpActive, 
+                 gameState.hotdogPowerUpActive, true);
 
     // Static Gun Rotated (Now dynamic based on aiming)
     let gunX = bgBoxX + bgBoxW + 20;
@@ -2370,73 +2216,14 @@ function gameLoop(timestamp) {
     // Smoothly track current aim regardless of firing (Active HUD tracking)
     currentAimAngle = Math.atan2(currentAimY - gunY, currentAimX - gunX) + Math.PI / 2;
 
-    ctx.save();
-    ctx.translate(gunX, gunY);
-    ctx.rotate(currentAimAngle);
-
-    let barrelLen = 31 * dSize; // 50% longer than 21 (roughly ~31)
-
-    let isGolden = gameState.round >= 30;
-
-    // Barrels (Double barrel shotgun)
-    ctx.fillStyle = isGolden ? "#d4af37" : "#212121";
-    ctx.fillRect(0, -barrelLen - 4 * dSize, 10 * dSize, barrelLen);
-    ctx.fillStyle = isGolden ? "#fbf5b7" : "#757575"; // Highlights
-    ctx.fillRect(1 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
-    ctx.fillRect(6 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
-
-    // Gap between barrels
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(4 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
-
-    // Grip/Hand holding it
-    ctx.fillStyle = "#388e3c"; // Doomguy green glove
-    ctx.fillRect(-2 * dSize, -7 * dSize, 14 * dSize, 7 * dSize);
-    ctx.fillStyle = "#1b5e20";
-    ctx.fillRect(-2 * dSize, -2 * dSize, 14 * dSize, 2 * dSize); // knuckles frame
-
-    // Draw Laser Sight (Level 30+)
-    if (isGolden) {
-        ctx.strokeStyle = "rgba(255, 0, 0, 0.7)"; // Transparent red laser beam
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(5 * dSize, -barrelLen - 4 * dSize);
-        ctx.lineTo(5 * dSize, -2000); // Shoot out perfectly parallel to barrels into sky
-        ctx.stroke();
-    }
-
-    if (gameState.powerUpActive) {
-        ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
-        ctx.fillRect(0, -barrelLen - 4 * dSize, 10 * dSize, barrelLen); // Barrels tint
-        ctx.fillRect(-2 * dSize, -7 * dSize, 14 * dSize, 7 * dSize); // Grip tint
-    }
-
-    // Muzzle Flash Animation (2 Frames based on tap timing)
-    let timeSinceShot = performance.now() - lastShotTime;
-    if (timeSinceShot < 100) { // Keep under the 100ms flight-time threshold
-        if (timeSinceShot < 40) {
-            // Frame 1: Massive explosive burst
-            ctx.fillStyle = "#ff9800"; // Orange backing
-            ctx.fillRect(-4 * dSize, -barrelLen - 12 * dSize, 18 * dSize, 10 * dSize);
-            ctx.fillStyle = "#ffeb3b"; // Yellow core
-            ctx.fillRect(-2 * dSize, -barrelLen - 10 * dSize, 14 * dSize, 6 * dSize);
-            ctx.fillStyle = "#ffffff"; // White hot center
-            ctx.fillRect(2 * dSize, -barrelLen - 9 * dSize, 6 * dSize, 4 * dSize);
-        } else {
-            // Frame 2: Dissipating puff
-            ctx.fillStyle = "#ffeb3b";
-            ctx.fillRect(0, -barrelLen - 8 * dSize, 10 * dSize, 5 * dSize);
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(3 * dSize, -barrelLen - 7 * dSize, 4 * dSize, 3 * dSize);
-        }
-    }
-    ctx.restore();
+    drawWeapon(ctx, gunX, gunY, currentAimAngle, gameState.character, gameState.round >= 30, gameState.powerUpActive, dSize, timestamp);
 
     requestAnimationFrame(gameLoop);
 }
 
 // Start Screen Hookup
 const startScreen = document.getElementById('start-screen');
+const charSelection = document.getElementById('char-selection');
 const startBtn = document.getElementById('start-btn');
 const startBtnFs = document.getElementById('start-btn-fs');
 const toggleFs = document.getElementById('toggle-fs');
@@ -2464,19 +2251,43 @@ function toggleFullscreen(e) {
     }
 }
 
-function startGame() {
-    // Hide UI overlay
-    startScreen.style.display = 'none';
+function selectCharacter(id) {
+    gameState.character = id;
+    charSelection.style.display = 'none';
 
-    // Satisfy browser audio requirement to allow sounds
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+    if (id === 1) {
+        gameState.ammo = 8;
+    } else if (id === 2) {
+        gameState.lives = 6;
     }
+    updateUI();
+    
+    gameState.phase = 'SPAWN';
+    gameState.lastTime = performance.now();
+    startBGM(Math.min(5, Math.floor(gameState.killCount / 10) + 1));
+}
+window.selectCharacter = selectCharacter;
 
-    // Kickoff Game Logic
-    let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
+function startGame() {
+    startScreen.style.display = 'none';
+    charSelection.style.display = 'flex';
+    
+    // Draw portraits on selection cards
+    setTimeout(() => {
+        [1, 2, 3].forEach(id => {
+            const canvas_id = `p-${id}`;
+            const box = document.getElementById(canvas_id);
+            if (!box) return;
+            box.innerHTML = '';
+            const cvs = document.createElement('canvas');
+            cvs.width = 64;
+            cvs.height = 60;
+            box.appendChild(cvs);
+            const cctx = cvs.getContext('2d');
+            drawPortrait(cctx, 0, 0, id, performance.now(), 4, false, false, false, false);
+        });
+    }, 10);
 
-    // Reset state for new game
     gameState.lives = 5;
     gameState.score = 0;
     gameState.killCount = 0;
@@ -2490,7 +2301,6 @@ function startGame() {
     gameState.infiniteAmmo = false;
     document.getElementById('round-display').innerText = 'R=1';
 
-    // Background buildings & airplanes reset
     gameState.buildings = [];
     gameState.hills = [];
     gameState.hotdogs = [];
@@ -2522,11 +2332,6 @@ function startGame() {
         cyberpunkSource.disconnect();
         cyberpunkSource = null;
     }
-
-    startBGM(currentLevel);
-
-    gameState.phase = 'SPAWN';
-    gameState.lastTime = performance.now();
 }
 
 startBtn.addEventListener('click', startGame);
@@ -2578,3 +2383,195 @@ resetBtn.addEventListener('touchstart', resetToStart, { passive: true });
 // Start Game visual loop (only background draws until button click)
 gameState.lastTime = performance.now();
 requestAnimationFrame(gameLoop);
+function drawPortrait(ctx, portraitX, portraitY, charId, timestamp, dSize, isBald, isPowerActive, isHotdogActive, clip) {
+    ctx.save();
+    if (isPowerActive) {
+        let pCenterX = portraitX + 8 * dSize;
+        let pCenterY = portraitY + 7.5 * dSize;
+        let shakeDir = (Math.floor(timestamp / 100) % 2 === 0) ? 2 : -2;
+        ctx.translate(pCenterX + shakeDir, pCenterY);
+        ctx.scale(1.2, 1.2);
+        ctx.translate(-pCenterX, -pCenterY);
+    } else if (isHotdogActive) {
+        let pCenterX = portraitX + 8 * dSize;
+        let pCenterY = portraitY + 7.5 * dSize;
+        ctx.translate(pCenterX, pCenterY);
+        ctx.scale(1.5, 1.5);
+        ctx.translate(-pCenterX, -pCenterY);
+    }
+
+    // Portrait Background Box
+    ctx.fillStyle = "#424242";
+    ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
+
+    // Skin (Face base)
+    ctx.fillStyle = "#ffcc80";
+
+    if (charId === 1) { // Default Hoodie
+        let transitionProgress = Math.min(Math.max(gameState.round - 1, 0) / 29, 1.0);
+        let hr = Math.floor(156 + (76 - 156) * transitionProgress);
+        let hg = Math.floor(39 + (175 - 39) * transitionProgress);
+        let hb = Math.floor(176 + (80 - 176) * transitionProgress);
+        let hoodieColor = `rgb(${hr}, ${hg}, ${hb})`;
+
+        if (isBald) {
+            ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 11 * dSize);
+            ctx.fillStyle = hoodieColor;
+            ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize);
+        } else {
+            ctx.fillRect(portraitX + 4 * dSize, portraitY + 4 * dSize, 8 * dSize, 9 * dSize);
+            ctx.fillStyle = hoodieColor;
+            ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 2 * dSize);
+            ctx.fillRect(portraitX + 2 * dSize, portraitY + 3 * dSize, 2 * dSize, 10 * dSize);
+            ctx.fillRect(portraitX + 12 * dSize, portraitY + 3 * dSize, 2 * dSize, 10 * dSize);
+            ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize);
+            ctx.fillStyle = `rgb(${Math.floor(hr * 0.6)}, ${Math.floor(hg * 0.6)}, ${Math.floor(hb * 0.6)})`;
+            ctx.fillRect(portraitX + 3 * dSize, portraitY + 4 * dSize, 1 * dSize, 9 * dSize);
+            ctx.fillRect(portraitX + 12 * dSize, portraitY + 4 * dSize, 1 * dSize, 9 * dSize);
+        }
+    } else if (charId === 2) { // Priest
+        let robeColor = "#5d4037";
+        // Always balding dome
+        ctx.fillRect(portraitX + 3 * dSize, portraitY + 2 * dSize, 10 * dSize, 11 * dSize);
+        // Beard
+        ctx.fillStyle = "#eee";
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 9 * dSize, 8 * dSize, 4 * dSize);
+        // Robe
+        ctx.fillStyle = robeColor;
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 12 * dSize, 12 * dSize, 3 * dSize);
+    } else if (charId === 3) { // Judge
+        let wigColor = "#fff";
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 4 * dSize, 8 * dSize, 9 * dSize);
+        // Wig
+        ctx.fillStyle = wigColor;
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 2 * dSize, 12 * dSize, 4 * dSize);
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 6 * dSize, 2 * dSize, 7 * dSize);
+        ctx.fillRect(portraitX + 12 * dSize, portraitY + 6 * dSize, 2 * dSize, 7 * dSize);
+        // Black Robe
+        ctx.fillStyle = "#111";
+        ctx.fillRect(portraitX + 2 * dSize, portraitY + 13 * dSize, 12 * dSize, 2 * dSize);
+    }
+
+    // Eyes
+    ctx.fillStyle = "white";
+    ctx.fillRect(portraitX + 5 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+    ctx.fillRect(portraitX + 9 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+    ctx.fillStyle = "black";
+    ctx.fillRect(portraitX + 6 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
+    ctx.fillRect(portraitX + 9 * dSize, portraitY + 6 * dSize, 1 * dSize, 1 * dSize);
+
+    // Mouth
+    if (isHotdogActive) {
+        let eatFrame = Math.floor(timestamp / 300) % 4;
+        ctx.fillStyle = '#4e342e';
+        if (eatFrame === 0 || eatFrame === 2) {
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 10 * dSize, 4 * dSize, 1 * dSize);
+        } else {
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 3 * dSize);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 1 * dSize);
+        }
+        let hdp = 6;
+        let hdOffsets = [{ x: portraitX + 13 * dSize, remaining: 5 },{ x: portraitX + 10 * dSize, remaining: 5 },{ x: portraitX + 11 * dSize, remaining: 3 },{ x: portraitX + 12 * dSize, remaining: 1 }];
+        let hd = hdOffsets[eatFrame];
+        let hy = portraitY + 9 * dSize - hdp/2;
+        if (hd.remaining > 0) {
+            let hdW = hd.remaining * hdp;
+            ctx.fillStyle = '#c8860a'; ctx.fillRect(hd.x, hy, hdW, hdp);
+            ctx.fillStyle = '#b94040'; ctx.fillRect(hd.x, hy + hdp, hdW, hdp);
+            ctx.fillStyle = '#c8860a'; ctx.fillRect(hd.x, hy + 2 * hdp, hdW, hdp);
+            if (hd.remaining >= 3) { ctx.fillStyle = '#ffeb3b'; ctx.fillRect(hd.x + hdp, hy + hdp, hdp, hdp); }
+        }
+    } else {
+        ctx.fillStyle = "#4e342e";
+        if (Math.floor(timestamp / 300) % 2 === 0) {
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 3 * dSize);
+            ctx.fillStyle = "white"; ctx.fillRect(portraitX + 6 * dSize, portraitY + 9 * dSize, 4 * dSize, 1 * dSize);
+        } else {
+            ctx.fillRect(portraitX + 6 * dSize, portraitY + 10 * dSize, 4 * dSize, 1 * dSize);
+        }
+    }
+
+    if (isPowerActive) {
+        ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
+        ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
+    }
+    if (isHotdogActive) {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(portraitX + 7 * dSize, portraitY + 6 * dSize, 2 * dSize, 1 * dSize);
+        ctx.fillStyle = '#f44336';
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 5 * dSize, 3 * dSize, 2 * dSize);
+        ctx.fillRect(portraitX + 9 * dSize, portraitY + 5 * dSize, 3 * dSize, 2 * dSize);
+    }
+    ctx.restore();
+}
+
+function drawWeapon(ctx, gunX, gunY, aimAngle, charId, isGolden, isPowerActive, dSize, timestamp) {
+    ctx.save();
+    ctx.translate(gunX, gunY);
+    ctx.rotate(aimAngle);
+
+    if (charId === 1) { // Default Shotgun
+        let barrelLen = 31 * dSize;
+        ctx.fillStyle = isGolden ? "#d4af37" : "#212121";
+        ctx.fillRect(0, -barrelLen - 4 * dSize, 10 * dSize, barrelLen);
+        ctx.fillStyle = isGolden ? "#fbf5b7" : "#757575";
+        ctx.fillRect(1 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
+        ctx.fillRect(6 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
+        ctx.fillStyle = "#000"; ctx.fillRect(4 * dSize, -barrelLen - 4 * dSize, 2 * dSize, barrelLen);
+        ctx.fillStyle = "#388e3c"; ctx.fillRect(-2 * dSize, -7 * dSize, 14 * dSize, 7 * dSize);
+        if (isPowerActive) {
+            ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
+            ctx.fillRect(0, -barrelLen - 4 * dSize, 10 * dSize, barrelLen);
+            ctx.fillRect(-2 * dSize, -7 * dSize, 14 * dSize, 7 * dSize);
+        }
+    } else if (charId === 2) { // Magic Staff
+        let staffLen = 40 * dSize;
+        ctx.fillStyle = "#5d4037";
+        ctx.fillRect(3 * dSize, -staffLen, 4 * dSize, staffLen);
+        // Diamond atop
+        ctx.fillStyle = "#81d4fa";
+        ctx.beginPath();
+        ctx.moveTo(5 * dSize, -staffLen - 8 * dSize);
+        ctx.lineTo(8 * dSize, -staffLen - 4 * dSize);
+        ctx.lineTo(5 * dSize, -staffLen);
+        ctx.lineTo(2 * dSize, -staffLen - 4 * dSize);
+        ctx.closePath();
+        ctx.fill();
+        // Glow
+        ctx.globalAlpha = 0.3 + 0.2 * Math.sin(timestamp / 200);
+        ctx.fillStyle = "#fff";
+        ctx.beginPath(); ctx.arc(5 * dSize, -staffLen - 4 * dSize, 6 * dSize, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1.0;
+    } else if (charId === 3) { // Flaming Scroll
+        let scrollW = 12 * dSize;
+        let scrollH = 20 * dSize;
+        ctx.fillStyle = "#f5f5dc";
+        ctx.fillRect(-scrollW/2 + 5*dSize, -scrollH - 5*dSize, scrollW, scrollH);
+        // Spindles
+        ctx.fillStyle = "#3e2723";
+        ctx.fillRect(-scrollW/2 + 4*dSize, -scrollH - 6*dSize, scrollW + 2*dSize, 2*dSize);
+        ctx.fillRect(-scrollW/2 + 4*dSize, -6*dSize, scrollW + 2*dSize, 2*dSize);
+        // Flames
+        let offset = Math.sin(timestamp / 100) * 2;
+        ctx.fillStyle = "#f44336";
+        ctx.beginPath();
+        ctx.moveTo(0 + 5*dSize, -scrollH - 15*dSize + offset);
+        ctx.lineTo(scrollW/2 + 10*dSize, -scrollH - 5*dSize);
+        ctx.lineTo(-scrollW/2 - 0*dSize, -scrollH - 5*dSize);
+        ctx.closePath(); ctx.fill();
+    }
+
+    // Muzzle Flash
+    let timeSinceShot = performance.now() - lastShotTime;
+    if (timeSinceShot < 100) {
+        let barrelLen = (charId === 1) ? 31 * dSize : (charId === 2 ? 45 * dSize : 25 * dSize);
+        if (timeSinceShot < 40) {
+            ctx.fillStyle = "#ff9800"; ctx.fillRect(-4 * dSize, -barrelLen - 12 * dSize, 18 * dSize, 10 * dSize);
+            ctx.fillStyle = "#ffeb3b"; ctx.fillRect(-2 * dSize, -barrelLen - 10 * dSize, 14 * dSize, 6 * dSize);
+        } else {
+            ctx.fillStyle = "#ffeb3b"; ctx.fillRect(0, -barrelLen - 8 * dSize, 10 * dSize, 5 * dSize);
+        }
+    }
+    ctx.restore();
+}

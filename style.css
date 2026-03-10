@@ -184,3 +184,74 @@ body, html {
     box-shadow: 0 0 0 #000;
     opacity: 0.8;
 }
+
+/* Character Selection Screen */
+#char-selection {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #5d4037; /* Brown base */
+    /* Wooden plank pattern using linear gradients */
+    background-image: 
+        linear-gradient(90deg, transparent 95%, rgba(0,0,0,0.3) 100%),
+        linear-gradient(rgba(255,255,255,0.05) 50%, transparent 50%);
+    background-size: 80px 100%, 100% 40px;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 101;
+    border: 10px solid #3e2723;
+}
+
+.char-title {
+    font-size: 32px;
+    color: #ffeb3b;
+    text-shadow: 3px 3px 0 #000;
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+.char-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 90%;
+}
+
+.char-card {
+    background: rgba(0,0,0,0.4);
+    border: 4px solid #fff;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    cursor: pointer;
+    box-shadow: 4px 4px 0 #000;
+    transition: transform 0.1s;
+}
+
+.char-card:hover {
+    background: rgba(255,255,255,0.1);
+    transform: scale(1.02);
+}
+
+.char-card:active {
+    transform: scale(0.98);
+}
+
+.char-p-box {
+    width: 64px;
+    height: 60px;
+    background: #424242;
+    border: 2px solid #8bc34a;
+    flex-shrink: 0;
+}
+
+.char-desc {
+    font-size: 14px;
+    color: #fff;
+    line-height: 1.2;
+}

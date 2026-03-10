@@ -18,6 +18,25 @@
             <button id="start-btn-fs" class="btn" style="margin-top: 20px;">NEW GAME (FULLSCREEN)</button>
         </div>
 
+        <!-- Character Selection Screen -->
+        <div id="char-selection" style="display: none;">
+            <h2 class="char-title">SELECT YOUR HUNTER</h2>
+            <div class="char-container">
+                <div class="char-card" id="char-1" onclick="selectCharacter(1)">
+                    <div class="char-p-box" id="p-1"></div>
+                    <p class="char-desc">The Urban Stalker: Master of the hunt. Starts with 8 shells.</p>
+                </div>
+                <div class="char-card" id="char-2" onclick="selectCharacter(2)">
+                    <div class="char-p-box" id="p-2"></div>
+                    <p class="char-desc">The Ascetic: Divine protection. Starts with 6 lives.</p>
+                </div>
+                <div class="char-card" id="char-3" onclick="selectCharacter(3)">
+                    <div class="char-p-box" id="p-3"></div>
+                    <p class="char-desc">The Arbitrator: Law & Order. 20% bonus points.</p>
+                </div>
+            </div>
+        </div>
+
         <!-- The UI Layer (score, ammo, etc.) -->
         <div id="ui-layer">
             <div id="lives-display"></div>
@@ -42,7 +61,7 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <script type="module" src="game.js?v=39"></script>
+    <script type="module" src="game.js?v=40"></script>
 </body>
 
 </html>
