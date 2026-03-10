@@ -9,9 +9,9 @@ duckImg1.src = 'duck1.png';
 const duckImg2 = new Image();
 duckImg2.src = 'duck2.png';
 const dogImg1 = new Image();
-dogImg1.src = 'dog1.png';
+dogImg1.src = 'dog1.png?v=43';
 const dogImg2 = new Image();
-dogImg2.src = 'dog2.png';
+dogImg2.src = 'dog2.png?v=43';
 
 // Audio Context setup for sound effects
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -226,6 +226,7 @@ let gameState = {
     hotdogPowerUpTimer: 0,
     hotdogPowerUpEndRound: 0,
     character: 1, // 1: Hoodie, 2: Priest, 3: Judge
+    maxRoundReached: parseInt(localStorage.getItem('mallard_max_round') || '1'),
     tigersKilled: 0,
     airplanesKilled: 0,
     lastAirplaneTime: 0,
@@ -1792,79 +1793,9 @@ function gameLoop(timestamp) {
     } else if (gameState.phase === 'DOG') {
         gameState.timer -= dt;
 
-        // Dog animation: 0.5s up, 1.5s hold, 0.5s down
-        let dW = 200, dH = 260; // Taller for waist-up
-        let startY = canvas.height;
-        let targetY = canvas.height - dH + 20; // Slight overlap to not show bottom edge
-        let dogY = startY;
-        let currentDogImg = dogImg1;
-
-        if (gameState.timer > 2) {
-            // Popping up
-            let progress = (2.5 - gameState.timer) / 0.5;
-            dogY = startY - progress * (startY - targetY);
-        } else if (gameState.timer > 0.5) {
-            // Hold - laughing animation
-            dogY = targetY;
-            if (!gameState.dogPlayedSound) {
-                playSound(snickerBuffer, 0.6);
-                gameState.dogPlayedSound = true;
-            }
-            // Switch frame every ~0.15s
-            if (Math.floor(gameState.timer * 6) % 2 === 0) {
-                currentDogImg = dogImg2;
-            } else {
-                currentDogImg = dogImg1;
-            }
-
-        } else if (gameState.timer > 0) {
-            // Going down
-            let progress = (0.5 - gameState.timer) / 0.5;
-            dogY = targetY + progress * (startY - targetY);
-        }
-
-        // Draw Dog First
-        ctx.drawImage(currentDogImg, canvas.width / 2 - dW / 2, dogY, dW, dH);
-
-        // Draw Pixel-Art Speech bubble OVER the dog
-        if (gameState.timer > 0 && dogY < canvas.height - 50) {
-            ctx.font = "bold 13px 'Courier New', Courier, monospace";
-            let textMetrics = ctx.measureText(gameState.dogQuote);
-            let bubbleW = Math.max(160, textMetrics.width + 30);
-            let bubbleH = 40;
-
-            // Place 5 pixels to the right of the dog
-            let isOnRight = true;
-            let bubbleX = (canvas.width / 2 + dW / 2) + 5;
-            let bubbleY = dogY - 40; // Moved up an additional 20px
-
-            // If it goes off-screen right, move to left side
-            if (bubbleX + bubbleW > canvas.width - 5) {
-                bubbleX = (canvas.width / 2 - dW / 2) - bubbleW - 5;
-                isOnRight = false;
-            }
-
-            // Just in case it doesn't fit on the left either, center it
-            if (bubbleX < 5) {
-                bubbleX = Math.max(5, canvas.width / 2 - bubbleW / 2);
-            }
-
-            let pSize = 4; // Pixel scale for chunky retro look
-
-            // 1. Black Outline (using rects for blockiness)
-            ctx.fillStyle = "black";
-            ctx.fillRect(bubbleX - pSize, bubbleY, bubbleW + pSize * 2, bubbleH);
-            ctx.fillRect(bubbleX, bubbleY - pSize, bubbleW, bubbleH + pSize * 2);
-
-            // 2. White Inside
-            ctx.fillStyle = "white";
-            ctx.fillRect(bubbleX, bubbleY, bubbleW, bubbleH);
-
-            // 3. Text
-            ctx.fillStyle = "black";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(gameState.dogQuote, bubbleX + bubbleW / 2, bubbleY + bubbleH / 2);
+        if (gameState.timer > 0.5 && gameState.timer < 2.0 && !gameState.dogPlayedSound) {
+            playSound(snickerBuffer, 0.6);
+            gameState.dogPlayedSound = true;
         }
 
         if (gameState.timer <= 0) {
@@ -1873,6 +1804,10 @@ function gameLoop(timestamp) {
             } else {
                 gameState.phase = 'SPAWN';
                 gameState.round++;
+                if (gameState.round > gameState.maxRoundReached) {
+                    gameState.maxRoundReached = gameState.round;
+                    localStorage.setItem('mallard_max_round', gameState.maxRoundReached.toString());
+                }
                 spawnBuildings(gameState.round);
                 if (gameState.round % 5 === 0) {
                     spawnHills();
@@ -2185,6 +2120,60 @@ function gameLoop(timestamp) {
         flashFrames--;
     }
 
+    // --- Draw Dog (Layered over background and grass) ---
+    if (gameState.phase === 'DOG') {
+        let dW = 200, dH = 260;
+        let startY = canvas.height;
+        let targetY = canvas.height - dH + 20;
+        let dogY = startY;
+        let currentDogImg = dogImg1;
+
+        if (gameState.timer > 2) {
+            let progress = (2.5 - gameState.timer) / 0.5;
+            dogY = startY - progress * (startY - targetY);
+        } else if (gameState.timer > 0.5) {
+            dogY = targetY;
+            if (Math.floor(gameState.timer * 6) % 2 === 0) {
+                currentDogImg = dogImg2;
+            } else {
+                currentDogImg = dogImg1;
+            }
+        } else if (gameState.timer > 0) {
+            let progress = (0.5 - gameState.timer) / 0.5;
+            dogY = targetY + progress * (startY - targetY);
+        }
+
+        ctx.drawImage(currentDogImg, canvas.width / 2 - dW / 2, dogY, dW, dH);
+
+        // Speech bubble
+        if (gameState.timer > 0 && dogY < canvas.height - 50) {
+            ctx.font = "bold 13px 'Courier New', Courier, monospace";
+            let textMetrics = ctx.measureText(gameState.dogQuote);
+            let bubbleW = Math.max(160, textMetrics.width + 30);
+            let bubbleH = 40;
+            let bubbleX = (canvas.width / 2 + dW / 2) + 5;
+            let bubbleY = dogY - 40;
+
+            if (bubbleX + bubbleW > canvas.width - 5) {
+                bubbleX = (canvas.width / 2 - dW / 2) - bubbleW - 5;
+            }
+            if (bubbleX < 5) {
+                bubbleX = Math.max(5, canvas.width / 2 - bubbleW / 2);
+            }
+
+            let pSize = 4;
+            ctx.fillStyle = "black";
+            ctx.fillRect(bubbleX - pSize, bubbleY, bubbleW + pSize * 2, bubbleH);
+            ctx.fillRect(bubbleX, bubbleY - pSize, bubbleW, bubbleH + pSize * 2);
+            ctx.fillStyle = "white";
+            ctx.fillRect(bubbleX, bubbleY, bubbleW, bubbleH);
+            ctx.fillStyle = "black";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(gameState.dogQuote, bubbleX + bubbleW / 2, bubbleY + bubbleH / 2);
+        }
+    }
+
     // --- Draw Doom-style UI (Portrait & Gun) ---
     let dSize = 4;
     let uiYOffset = 85; // strictly above bottom UI bar
@@ -2207,7 +2196,7 @@ function gameLoop(timestamp) {
 
     drawPortrait(ctx, portraitX, portraitY, gameState.character, timestamp, dSize, 
                  timestamp < gameState.baldUntil, gameState.powerUpActive, 
-                 gameState.hotdogPowerUpActive, true);
+                 gameState.hotdogPowerUpActive, true, false);
 
     // Static Gun Rotated (Now dynamic based on aiming)
     let gunX = bgBoxX + bgBoxW + 20;
@@ -2252,6 +2241,9 @@ function toggleFullscreen(e) {
 }
 
 function selectCharacter(id) {
+    let unlocked = (id === 1 || (id === 2 && gameState.maxRoundReached >= 10) || (id === 3 && gameState.maxRoundReached >= 20));
+    if (!unlocked) return;
+
     gameState.character = id;
     charSelection.style.display = 'none';
 
@@ -2277,14 +2269,37 @@ function startGame() {
         [1, 2, 3].forEach(id => {
             const canvas_id = `p-${id}`;
             const box = document.getElementById(canvas_id);
-            if (!box) return;
+            const card = document.getElementById(`char-${id}`);
+            if (!box || !card) return;
+            
+            let unlocked = (id === 1 || (id === 2 && gameState.maxRoundReached >= 10) || (id === 3 && gameState.maxRoundReached >= 20));
+            
             box.innerHTML = '';
             const cvs = document.createElement('canvas');
             cvs.width = 64;
             cvs.height = 60;
             box.appendChild(cvs);
             const cctx = cvs.getContext('2d');
-            drawPortrait(cctx, 0, 0, id, performance.now(), 4, false, false, false, false);
+            drawPortrait(cctx, 0, 0, id, performance.now(), 4, false, false, false, false, !unlocked);
+            
+            if (!unlocked) {
+                card.classList.add('locked');
+                card.querySelector('.char-desc').innerText = "You have not met this adventurer yet!";
+                card.style.cursor = "not-allowed";
+                card.style.opacity = "0.7";
+            } else {
+                card.classList.remove('locked');
+                card.style.cursor = "pointer";
+                card.style.opacity = "1.0";
+                // Restore descriptions
+                const descs = [
+                    "",
+                    "The Urban Stalker: Master of the hunt. Starts with 8 shells.",
+                    "The Ascetic: Divine protection. Starts with 6 lives.",
+                    "The Arbitrator: Law & Order. 20% bonus points."
+                ];
+                card.querySelector('.char-desc').innerText = descs[id];
+            }
         });
     }, 10);
 
@@ -2383,8 +2398,9 @@ resetBtn.addEventListener('touchstart', resetToStart, { passive: true });
 // Start Game visual loop (only background draws until button click)
 gameState.lastTime = performance.now();
 requestAnimationFrame(gameLoop);
-function drawPortrait(ctx, portraitX, portraitY, charId, timestamp, dSize, isBald, isPowerActive, isHotdogActive, clip) {
+function drawPortrait(ctx, portraitX, portraitY, charId, timestamp, dSize, isBald, isPowerActive, isHotdogActive, clip, isLocked) {
     ctx.save();
+    
     if (isPowerActive) {
         let pCenterX = portraitX + 8 * dSize;
         let pCenterY = portraitY + 7.5 * dSize;
@@ -2401,8 +2417,22 @@ function drawPortrait(ctx, portraitX, portraitY, charId, timestamp, dSize, isBal
     }
 
     // Portrait Background Box
-    ctx.fillStyle = "#424242";
+    ctx.fillStyle = isLocked ? "#222" : "#424242";
     ctx.fillRect(portraitX, portraitY, 16 * dSize, 15 * dSize);
+
+    if (isLocked) {
+        // Locked State: Grayed out and question mark
+        ctx.fillStyle = "#444";
+        ctx.fillRect(portraitX + 4 * dSize, portraitY + 4 * dSize, 8 * dSize, 9 * dSize);
+        // Question Mark
+        ctx.fillStyle = "#888";
+        ctx.font = `bold ${8 * dSize}px 'Courier New'`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("?", portraitX + 8 * dSize, portraitY + 7.5 * dSize);
+        ctx.restore();
+        return;
+    }
 
     // Skin (Face base)
     ctx.fillStyle = "#ffcc80";
@@ -2546,20 +2576,56 @@ function drawWeapon(ctx, gunX, gunY, aimAngle, charId, isGolden, isPowerActive, 
     } else if (charId === 3) { // Flaming Scroll
         let scrollW = 12 * dSize;
         let scrollH = 20 * dSize;
+        let sX = -scrollW / 2 + 5 * dSize;
+        let sY = -scrollH - 5 * dSize;
         ctx.fillStyle = "#f5f5dc";
-        ctx.fillRect(-scrollW/2 + 5*dSize, -scrollH - 5*dSize, scrollW, scrollH);
+        ctx.fillRect(sX, sY, scrollW, scrollH);
+        
+        // Scribbles (Ancient text)
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        for (let i = 0; i < 5; i++) {
+            let rowY = sY + 3 * dSize + i * 3 * dSize;
+            let lineW = scrollW - 4 * dSize;
+            ctx.fillRect(sX + 2 * dSize, rowY, lineW * 0.7 + Math.random() * (lineW * 0.3), 1.5 * dSize);
+        }
+
         // Spindles
         ctx.fillStyle = "#3e2723";
-        ctx.fillRect(-scrollW/2 + 4*dSize, -scrollH - 6*dSize, scrollW + 2*dSize, 2*dSize);
-        ctx.fillRect(-scrollW/2 + 4*dSize, -6*dSize, scrollW + 2*dSize, 2*dSize);
-        // Flames
-        let offset = Math.sin(timestamp / 100) * 2;
+        ctx.fillRect(sX - 1 * dSize, sY - 1 * dSize, scrollW + 2 * dSize, 2 * dSize);
+        ctx.fillRect(sX - 1 * dSize, sY + scrollH - 1 * dSize, scrollW + 2 * dSize, 2 * dSize);
+        
+        // Jagged Flames
+        let fBaseY = sY - 1 * dSize;
+        let fCenterX = sX + scrollW / 2;
         ctx.fillStyle = "#f44336";
+        
+        // Multi-point jagged flame
         ctx.beginPath();
-        ctx.moveTo(0 + 5*dSize, -scrollH - 15*dSize + offset);
-        ctx.lineTo(scrollW/2 + 10*dSize, -scrollH - 5*dSize);
-        ctx.lineTo(-scrollW/2 - 0*dSize, -scrollH - 5*dSize);
-        ctx.closePath(); ctx.fill();
+        ctx.moveTo(fCenterX - scrollW / 2, fBaseY);
+        for(let i = 0; i < 5; i++) {
+            let step = (scrollW / 5) * i;
+            let jitterX = (Math.random() - 0.5) * 4 * dSize;
+            let jitterY = Math.random() * 10 * dSize;
+            let phase = timestamp / 100 + i;
+            let h = 15 * dSize + Math.sin(phase) * 5 * dSize + jitterY;
+            ctx.lineTo(fCenterX - scrollW / 2 + step + jitterX, fBaseY - h);
+        }
+        ctx.lineTo(fCenterX + scrollW / 2, fBaseY);
+        ctx.closePath();
+        ctx.fill();
+
+        // Inner orange flame core for more "fire" look
+        ctx.fillStyle = "#ff9800";
+        ctx.beginPath();
+        ctx.moveTo(fCenterX - scrollW / 3, fBaseY);
+        for(let i = 0; i < 3; i++) {
+            let phase = timestamp / 80 + i;
+            let h = 8 * dSize + Math.cos(phase) * 3 * dSize;
+            ctx.lineTo(fCenterX - scrollW / 4 + i * (scrollW / 2), fBaseY - h);
+        }
+        ctx.lineTo(fCenterX + scrollW / 3, fBaseY);
+        ctx.closePath();
+        ctx.fill();
     }
 
     // Muzzle Flash
