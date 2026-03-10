@@ -29,6 +29,9 @@ let sirenSource = null;
 let boomBuffer = null;
 let cyberpunkBuffer = null;
 let cyberpunkSource = null;
+let hymnBuffer = null;
+let synthwaveBuffer = null;
+let currentBGMBuffer = null;
 let deathTextLines = [];
 let winTextLines = [];
 let winTimer = 0;
@@ -105,6 +108,18 @@ fetch('cyberpunk.wav')
     .then(buffer => { cyberpunkBuffer = buffer; })
     .catch(e => console.error('Error loading cyberpunk melody:', e));
 
+fetch('hymn.wav')
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { hymnBuffer = buffer; })
+    .catch(e => console.error('Error loading hymn music:', e));
+
+fetch('synthwave.wav')
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { synthwaveBuffer = buffer; })
+    .catch(e => console.error('Error loading synthwave music:', e));
+
 function playSound(buffer, volume = 1.0, loop = false) {
     if (!buffer) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -120,8 +135,26 @@ function playSound(buffer, volume = 1.0, loop = false) {
 }
 
 function startBGM(level) {
-    if (!bgmBuffer) return;
+    let targetBuffer = bgmBuffer; // Default (Urban Stalker)
+    if (gameState.character === 2) targetBuffer = hymnBuffer;
+    if (gameState.character === 3) targetBuffer = synthwaveBuffer;
+
+    if (!targetBuffer) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    // If the character changed (and thus the track), stop the old one
+    if (bgmSource && currentBGMBuffer !== targetBuffer) {
+        try {
+            bgmSource.stop();
+            bgmSource.disconnect();
+        } catch (e) {
+            console.warn("Error stopping BGM:", e);
+        }
+        bgmSource = null;
+    }
+
+    // Update tracking
+    currentBGMBuffer = targetBuffer;
 
     // If it's already playing, gently adjust the speed without restarting the song!
     if (bgmSource) {
@@ -130,7 +163,7 @@ function startBGM(level) {
     }
 
     bgmSource = audioCtx.createBufferSource();
-    bgmSource.buffer = bgmBuffer;
+    bgmSource.buffer = targetBuffer;
     bgmSource.loop = true;
 
     // Scale playback speed dynamically. 
@@ -714,11 +747,32 @@ class HotdogPowerUp {
             }
             return;
         }
+        let timestamp = performance.now();
         ctx.save();
         ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
-        ctx.globalAlpha = 0.9;
-
+        
         let p = 4;
+        // Flap animation
+        let flap = Math.sin(timestamp / 100) * 10;
+
+        // Draw Wings (White)
+        ctx.fillStyle = "#ffffff";
+        // Left Wing
+        ctx.beginPath();
+        ctx.moveTo(-4 * p, 0);
+        ctx.lineTo(-12 * p, -10 * p + flap);
+        ctx.lineTo(-12 * p, 5 * p + flap);
+        ctx.closePath();
+        ctx.fill();
+        // Right Wing
+        ctx.beginPath();
+        ctx.moveTo(4 * p, 0);
+        ctx.lineTo(12 * p, -10 * p + flap);
+        ctx.lineTo(12 * p, 5 * p + flap);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.globalAlpha = 0.9;
         // Bun top
         ctx.fillStyle = '#c8860a';
         ctx.fillRect(-7*p, -4*p, 14*p, 3*p);
@@ -1071,6 +1125,11 @@ class Projectile {
             this.targetTiger.isDead = true;
             addScore(1000, this.targetTiger.x + this.targetTiger.width / 2, this.targetTiger.y);
             gameState.tigersKilled++;
+            if (gameState.tigersKilled % 10 === 0 && gameState.lives < 5) {
+                gameState.lives++;
+                playSound(jingleBuffer, 0.8);
+                updateUI();
+            }
 
             let particles = [];
             for (let i = 0; i < 20; i++) {
