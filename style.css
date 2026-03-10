@@ -95,6 +95,14 @@ body, html {
 .heart::before { top: -11px; left: -2px; border-radius: 50% 50% 0 0; border-right: 0; }
 .heart::after { top: -2px; left: 9px; border-radius: 0 50% 50% 0; border-top: 0; }
 
+@keyframes pulseHeart {
+    0% { transform: rotate(-45deg) scale(0.9); }
+    100% { transform: rotate(-45deg) scale(1.1); }
+}
+
+.heart.pulse {
+    animation: pulseHeart 0.5s infinite alternate ease-in-out;
+}
 
 #round-display {
     font-size: 20px;
