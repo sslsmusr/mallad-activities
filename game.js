@@ -280,9 +280,7 @@ let gameState = {
     deathStreak: parseInt(localStorage.getItem('mallard_death_streak') || '0'),
     buildingSnapshot: JSON.parse(localStorage.getItem('mallard_buildings') || '[]'),
     hillSnapshot: JSON.parse(localStorage.getItem('mallard_hills') || '[]'),
-    blessingRounds: 0,
-    cloudClicks: 0,
-    cloudClicksTimer: 0
+    blessingRounds: 0
 };
 const motivationalQuotes = [
     "Shoot for the moon, land in the dirt.",
@@ -1565,48 +1563,6 @@ function handleShoot(event) {
         gameState.ammo--;
     }
     updateUI();
-
-    // CLOUD CLICK DETECTION
-    if (gameState.phase === 'PLAY') {
-        const now = performance.now() / 1000;
-        if (gameState.cloudClicks === 0 || now - gameState.cloudClicksTimer > 30) {
-            gameState.cloudClicks = 0;
-            gameState.cloudClicksTimer = now;
-        }
-
-        // We check if the click hit a cloud
-        // Re-calculate cloud positions similar to gameLoop's draw logic
-        let currentLevelNum = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
-        let numClouds = currentLevelNum === 1 ? 2 : (currentLevelNum === 2 ? 6 : 14);
-        let hitCloud = false;
-
-        for (let c = 0; c < numClouds; c++) {
-            let startX = c * 137;
-            let speedMult = 1.0 + (Math.sin(c * 123.45) * 0.2);
-            let sizeMult = 1.0 + (Math.cos(c * 321.12) * 0.2);
-            let speed = (20 + (c % 3) * 10) * speedMult;
-            let timestampMS = performance.now();
-            let cx = ((startX + timestampMS / 1000 * speed) % (canvas.width + 120)) - 60;
-            let cy = 20 + (c * 47) % (canvas.height * 0.6);
-
-            // Cloud bounding box (approx 60x30 scaled)
-            let cw = 60 * sizeMult;
-            let ch = 30 * sizeMult;
-
-            if (x >= cx - cw/2 && x <= cx + cw/2 && y >= cy - ch/2 && y <= cy + ch/2) {
-                hitCloud = true;
-                break;
-            }
-        }
-
-        if (hitCloud) {
-            gameState.cloudClicks++;
-            if (gameState.cloudClicks >= 10) {
-                gameState.cloudClicks = 0;
-                showVendingScreen();
-            }
-        }
-    }
 }
 
 let gameOverTimer = 0;
