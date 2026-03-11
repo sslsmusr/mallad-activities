@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mallard Madness</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=56">
 </head>
 
@@ -12,10 +15,49 @@
     <div id="game-container">
         <!-- Start Screen Overlay -->
         <div id="start-screen">
+            <canvas id="intro-canvas"></canvas>
             <h1 class="game-title">MALLARD MADNESS</h1>
             <p class="game-subtitle">a game about nothing in particular</p>
-            <button id="start-btn" class="btn">NEW GAME</button>
-            <button id="start-btn-fs" class="btn" style="margin-top: 20px;">NEW GAME (FULLSCREEN)</button>
+            <div style="display:flex; flex-direction: column; align-items: stretch; gap: 15px;">
+                <button id="start-btn" class="btn">NEW GAME</button>
+                <button id="start-3d-btn" class="btn">NEW GAME (3D)</button>
+                <button id="start-btn-fs" class="btn">NEW GAME (FULLSCREEN)</button>
+                <button id="almanach-btn" class="btn">ALMANACH</button>
+            </div>
+        </div>
+
+        <!-- Almanach Screen -->
+        <div id="almanach-screen" style="display: none;">
+            <div id="almanach-index">
+                <h2 class="almanach-title">THE GREAT ALMANACH</h2>
+                <p class="almanach-subtitle">compiled by the the blessed Pleshonius</p>
+                <div class="almanach-sections">
+                    <div class="almanach-section">
+                        <h3>Characters</h3>
+                        <div id="almanach-chars" class="almanach-grid"></div>
+                    </div>
+                    <div class="almanach-section">
+                        <h3>Bestiary</h3>
+                        <div id="almanach-enemies" class="almanach-grid"></div>
+                    </div>
+                    <div class="almanach-section">
+                        <h3>Artisans & Assets</h3>
+                        <div id="almanach-items" class="almanach-grid"></div>
+                    </div>
+                </div>
+                <button id="almanach-to-menu" class="btn">Back to Menu</button>
+            </div>
+            
+            <div id="almanach-detail" style="display: none;">
+                <div id="almanach-scene-container">
+                    <canvas id="almanach-scene-canvas" width="400" height="300"></canvas>
+                </div>
+                <div id="almanach-article">
+                    <h2 id="article-title"></h2>
+                    <p id="article-content"></p>
+                </div>
+                <button id="almanach-to-index" class="btn">Back to Index</button>
+            </div>
         </div>
 
         <!-- Character Selection Screen -->
@@ -47,6 +89,12 @@
                     <canvas id="shadowy-monk-canvas" width="300" height="400"></canvas>
                     <div id="shadowy-bubble">
                         <p id="shadowy-text"></p>
+                    </div>
+                    <div id="shadowy-companion" style="display: none;">
+                        <canvas id="shadowy-companion-canvas" width="64" height="64"></canvas>
+                        <div id="companion-bubble">
+                            <p id="companion-text"></p>
+                        </div>
                     </div>
                     <button id="shadowy-continue" style="display: none;">Continue</button>
                 </div>
