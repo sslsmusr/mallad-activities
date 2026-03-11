@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mallard Madness</title>
-    <link rel="stylesheet" href="style.css?v=55">
+    <link rel="stylesheet" href="style.css?v=56">
 </head>
 
 <body>
@@ -53,6 +53,28 @@
             </div>
         </div>
 
+        <!-- Vending Machine Screen -->
+        <div id="vending-screen" style="display: none;">
+            <div id="vending-machine">
+                <h2 id="vending-title">Supplies available</h2>
+                <div id="vending-options">
+                    <button id="buy-life" class="vending-btn">
+                        <div class="vending-icon heart-icon"></div>
+                        <span class="vending-text">Life (+1)<br><small>20,000 pts</small></span>
+                    </button>
+                    <button id="buy-blessing" class="vending-btn">
+                        <div class="vending-icon star-icon"></div>
+                        <span class="vending-text">Blessing (3 rds)<br><small>30,000 pts</small></span>
+                    </button>
+                    <button id="buy-skip" class="vending-btn">
+                        <div class="vending-icon wings-icon"></div>
+                        <span class="vending-text">Skip (+10R)<br><small>50,000 pts</small></span>
+                    </button>
+                </div>
+                <button id="vending-continue" class="btn">CONTINUE</button>
+            </div>
+        </div>
+
         <!-- The UI Layer (score, ammo, etc.) -->
         <div id="ui-layer">
             <div id="lives-display"></div>
@@ -77,7 +99,7 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <script type="module" src="game.js?v=55"></script>
+    <script type="module" src="game.js?v=56"></script>
 </body>
 
 </html>

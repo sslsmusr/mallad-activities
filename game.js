@@ -4,7 +4,7 @@ const scoreDisplay = document.getElementById('score-display');
 const ammoDisplay = document.getElementById('ammo-display');
 
 // Cache version for all assets
-const CACHE_VERSION = 55;
+const CACHE_VERSION = 56;
 
 // Load Assets
 const duckImg1 = new Image();
@@ -276,7 +276,13 @@ let gameState = {
     baldUntil: 0,
     perfectRounds: 0, // Count of flawless rounds
     sunClicks: 0,
-    infiniteAmmo: false
+    infiniteAmmo: false,
+    deathStreak: parseInt(localStorage.getItem('mallard_death_streak') || '0'),
+    buildingSnapshot: JSON.parse(localStorage.getItem('mallard_buildings') || '[]'),
+    hillSnapshot: JSON.parse(localStorage.getItem('mallard_hills') || '[]'),
+    blessingRounds: 0,
+    cloudClicks: 0,
+    cloudClicksTimer: 0
 };
 const motivationalQuotes = [
     "Shoot for the moon, land in the dirt.",
@@ -315,6 +321,12 @@ const shadowyContinue = document.getElementById('shadowy-continue');
 let shadowyAnimFrame = 0;
 let shadowyAnimHandle = null;
 let savedGameState = null;
+
+const vendingScreen = document.getElementById('vending-screen');
+const buyLifeBtn = document.getElementById('buy-life');
+const buyBlessingBtn = document.getElementById('buy-blessing');
+const buySkipBtn = document.getElementById('buy-skip');
+const vendingContinueBtn = document.getElementById('vending-continue');
 
 
 // Handle resizing to keep logical resolution crisp while filling screen
@@ -368,6 +380,55 @@ class Duck {
         this.isDead = false;
         this.isTargeted = false; // Prevent multiple projectiles targeting same duck
         this.color = ['#ff0000', '#00ff00', '#ffff00'][Math.floor(Math.random() * 3)];
+        
+        // Custom Death Animations
+        this.deathType = null;
+        this.deathTimer = 0;
+    }
+
+    die(charId) {
+        if (this.isDead) return;
+        this.isDead = true;
+        this.deathType = (charId === 2) ? 'electric' : (charId === 3 ? 'burn' : 'normal');
+
+        if (this.deathType === 'electric') {
+            this.deathTimer = 0.5; // Flicker for 0.5s then gone
+        } else if (this.deathType === 'burn') {
+            this.deathTimer = 0.4; // Turn black for 0.4s then disperse
+        } else {
+            // Normal behavior: immediate particles
+            this.createNormalParticles();
+        }
+    }
+
+    createNormalParticles() {
+        this.particles = [];
+        for (let p = 0; p < 30; p++) {
+            this.particles.push({
+                x: this.x + Math.random() * this.width,
+                y: this.y + Math.random() * this.height,
+                vx: (Math.random() - 0.5) * 400,
+                vy: (Math.random() - 0.5) * 400,
+                size: 4 + Math.random() * 8, 
+                life: 0.5 + Math.random() * 0.5,
+                color: Math.random() > 0.5 ? '#ffeb3b' : (Math.random() > 0.5 ? '#4caf50' : '#ff9800')
+            });
+        }
+    }
+
+    createBurnParticles() {
+        this.particles = [];
+        for (let p = 0; p < 25; p++) {
+            this.particles.push({
+                x: this.x + Math.random() * this.width,
+                y: this.y + Math.random() * this.height,
+                vx: (Math.random() - 0.5) * 150,
+                vy: (Math.random() - 1.0) * 150, // Mostly upwards/slow
+                size: 3 + Math.random() * 6,
+                life: 0.6 + Math.random() * 0.4,
+                color: Math.random() > 0.3 ? '#222222' : '#555555' // Ash/Soot
+            });
+        }
     }
 
     update(dt) {
@@ -380,6 +441,17 @@ class Duck {
                 this.vx *= -1;
             }
         } else {
+            if (this.deathTimer > 0) {
+                this.deathTimer -= dt;
+                if (this.deathTimer <= 0) {
+                    if (this.deathType === 'burn') {
+                        this.createBurnParticles();
+                    } else if (this.deathType === 'electric') {
+                        this.y = 9999; // Disappear
+                    }
+                }
+            }
+
             // Update particles for dissolve effect
             if (this.particles) {
                 let allDead = true;
@@ -390,9 +462,9 @@ class Duck {
                     if (p.life > 0) allDead = false;
                 });
                 if (allDead) {
-                    this.y = 9999; // Move offscreen so it gets filtered out and advances the round
+                    this.y = 9999; // Move offscreen
                 }
-            } else {
+            } else if (this.isDead && (!this.deathType || (this.deathType === 'electric' && this.deathTimer <= 0))) {
                 this.y = 9999; // Fallback
             }
         }
@@ -400,11 +472,63 @@ class Duck {
 
     draw(ctx) {
         if (this.isDead) {
+            if (this.deathTimer > 0) {
+                if (this.deathType === 'electric') {
+                    // Flashing blue/white duck
+                    ctx.save();
+                    ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                    if (this.vx < 0) ctx.scale(-1, 1);
+                    
+                    if (Math.floor(performance.now() / 50) % 2 === 0) {
+                        ctx.filter = 'brightness(5) saturate(0) sepia(1) hue-rotate(180deg) brightness(1.5)'; // Icy Blue
+                    } else {
+                        ctx.filter = 'brightness(10) contrast(2)'; // Pure White flash
+                    }
+                    ctx.globalAlpha = 0.3;
+                    ctx.drawImage(duckImg1, -this.width / 2, -this.height / 2, this.width, this.height);
+                    
+                    // Draw random lightning sparks
+                    ctx.restore();
+                    ctx.save();
+                    ctx.globalAlpha = 0.3;
+                    ctx.strokeStyle = "#fff";
+                    ctx.lineWidth = 3;
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(this.x + Math.random() * this.width, this.y + Math.random() * this.height);
+                        ctx.lineTo(this.x + Math.random() * this.width, this.y + Math.random() * this.height);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                    return;
+                } else if (this.deathType === 'burn') {
+                    // Silhouette black duck
+                    ctx.save();
+                    ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                    if (this.vx < 0) ctx.scale(-1, 1);
+                    ctx.filter = 'brightness(0)'; // Pitch black
+                    ctx.globalAlpha = 0.3;
+                    ctx.drawImage(duckImg1, -this.width / 2, -this.height / 2, this.width, this.height);
+                    
+                    // Orange glow/embers around edges
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.strokeStyle = '#ff9800';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(-this.width / 2, -this.height / 2, this.width, this.height);
+                    ctx.restore();
+                    return;
+                }
+            }
+
             if (this.particles) {
                 this.particles.forEach(p => {
                     if (p.life > 0) {
                         ctx.fillStyle = p.color;
-                        ctx.globalAlpha = Math.max(0, p.life);
+                        let alpha = Math.max(0, p.life);
+                        if (this.deathType === 'electric' || this.deathType === 'burn') {
+                            alpha *= 0.3;
+                        }
+                        ctx.globalAlpha = alpha;
                         ctx.fillRect(p.x, p.y, p.size, p.size);
                     }
                 });
@@ -864,19 +988,7 @@ class SeekingMissile {
 
         if (dist < 40) {
             // Hit!
-            this.targetDuck.isDead = true;
-            this.targetDuck.particles = [];
-            for (let i = 0; i < 20; i++) {
-                this.targetDuck.particles.push({
-                    x: this.targetDuck.x + Math.random() * this.targetDuck.width,
-                    y: this.targetDuck.y + Math.random() * this.targetDuck.height,
-                    vx: (Math.random() - 0.5) * 400,
-                    vy: (Math.random() - 0.5) * 400,
-                    size: 4 + Math.random() * 8,
-                    life: 0.5 + Math.random() * 0.5,
-                    color: Math.random() > 0.5 ? '#ff4444' : '#ffffff'
-                });
-            }
+            this.targetDuck.die(gameState.character);
             addScore(500, this.targetDuck.x + this.targetDuck.width / 2, this.targetDuck.y);
             gameState.killCount++;
             gameState.sessionKills++;
@@ -1040,19 +1152,7 @@ class Projectile {
 
         if (this.targetDuck && !this.targetDuck.isDead) { // Ensure it wasn't destroyed
             let duck = this.targetDuck;
-            duck.isDead = true;
-            duck.particles = [];
-            for (let p = 0; p < 30; p++) {
-                duck.particles.push({
-                    x: duck.x + Math.random() * duck.width,
-                    y: duck.y + Math.random() * duck.height,
-                    vx: (Math.random() - 0.5) * 400,
-                    vy: (Math.random() - 0.5) * 400,
-                    size: 4 + Math.random() * 8, // chunky pixels
-                    life: 0.5 + Math.random() * 0.5, // 0.5s to 1s expiration
-                    color: Math.random() > 0.5 ? '#ffeb3b' : (Math.random() > 0.5 ? '#4caf50' : '#ff9800')
-                });
-            }
+            duck.die(gameState.character);
             addScore(500, duck.x + duck.width / 2, duck.y);
             gameState.killCount++;
             gameState.sessionKills++;
@@ -1465,6 +1565,48 @@ function handleShoot(event) {
         gameState.ammo--;
     }
     updateUI();
+
+    // CLOUD CLICK DETECTION
+    if (gameState.phase === 'PLAY') {
+        const now = performance.now() / 1000;
+        if (gameState.cloudClicks === 0 || now - gameState.cloudClicksTimer > 30) {
+            gameState.cloudClicks = 0;
+            gameState.cloudClicksTimer = now;
+        }
+
+        // We check if the click hit a cloud
+        // Re-calculate cloud positions similar to gameLoop's draw logic
+        let currentLevelNum = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
+        let numClouds = currentLevelNum === 1 ? 2 : (currentLevelNum === 2 ? 6 : 14);
+        let hitCloud = false;
+
+        for (let c = 0; c < numClouds; c++) {
+            let startX = c * 137;
+            let speedMult = 1.0 + (Math.sin(c * 123.45) * 0.2);
+            let sizeMult = 1.0 + (Math.cos(c * 321.12) * 0.2);
+            let speed = (20 + (c % 3) * 10) * speedMult;
+            let timestampMS = performance.now();
+            let cx = ((startX + timestampMS / 1000 * speed) % (canvas.width + 120)) - 60;
+            let cy = 20 + (c * 47) % (canvas.height * 0.6);
+
+            // Cloud bounding box (approx 60x30 scaled)
+            let cw = 60 * sizeMult;
+            let ch = 30 * sizeMult;
+
+            if (x >= cx - cw/2 && x <= cx + cw/2 && y >= cy - ch/2 && y <= cy + ch/2) {
+                hitCloud = true;
+                break;
+            }
+        }
+
+        if (hitCloud) {
+            gameState.cloudClicks++;
+            if (gameState.cloudClicks >= 10) {
+                gameState.cloudClicks = 0;
+                showVendingScreen();
+            }
+        }
+    }
 }
 
 let gameOverTimer = 0;
@@ -1489,6 +1631,20 @@ function triggerGameOver() {
         cyberpunkSource = null;
     }
     somberSource = playSound(somberBuffer, 0.8, true);
+
+    // Increment death count
+    gameState.deathStreak++;
+    localStorage.setItem('mallard_death_streak', gameState.deathStreak);
+
+    // If 3 deaths and score < 10000, reset buildings
+    if (gameState.deathStreak >= 3 && gameState.score < 10000) {
+        localStorage.removeItem('mallard_buildings');
+        localStorage.removeItem('mallard_hills');
+        localStorage.setItem('mallard_death_streak', '0');
+        gameState.deathStreak = 0;
+        gameState.buildingSnapshot = [];
+        gameState.hillSnapshot = [];
+    }
 
     // Delay displaying reset button by 2 seconds to absorb the impact
     setTimeout(() => {
@@ -1518,6 +1674,10 @@ function triggerWin() {
     }
     cheerfulSource = playSound(cheerfulBuffer, 0.8, true);
 
+    // Reset death streak on win
+    gameState.deathStreak = 0;
+    localStorage.setItem('mallard_death_streak', '0');
+
     // Delay displaying reset button by 4 seconds
     setTimeout(() => {
         if (gameState.phase === 'WIN') {
@@ -1538,31 +1698,72 @@ function updateUI() {
     // Update bullets
     ammoDisplay.innerHTML = '';
     if (gameState.infiniteAmmo) {
+        const bullet = document.createElement('div');
+        bullet.className = 'bullet';
+        ammoDisplay.appendChild(bullet);
+
         const inf = document.createElement('span');
         inf.innerHTML = '&infin;';
         inf.style.color = '#fff';
         inf.style.fontSize = '24px';
-        inf.style.lineHeight = '24px';
-        inf.style.marginLeft = '10px';
+        inf.style.fontWeight = 'bold';
+        inf.style.marginLeft = '5px';
+        inf.style.alignSelf = 'center';
         ammoDisplay.appendChild(inf);
     } else {
-        for (let i = 0; i < gameState.ammo; i++) {
+        if (gameState.ammo > 5) {
+            // Display a single bullet followed by "x [ammo]"
             const bullet = document.createElement('div');
             bullet.className = 'bullet';
             ammoDisplay.appendChild(bullet);
+
+            const countText = document.createElement('span');
+            countText.innerText = ' x ' + gameState.ammo;
+            countText.style.color = '#fff';
+            countText.style.fontSize = '24px';
+            countText.style.fontWeight = 'bold';
+            countText.style.textShadow = '2px 2px 0 #000';
+            countText.style.marginLeft = '5px';
+            countText.style.alignSelf = 'center';
+            countText.style.lineHeight = '25px';
+            ammoDisplay.appendChild(countText);
+        } else {
+            // Display each bullet individually
+            for (let i = 0; i < gameState.ammo; i++) {
+                const bullet = document.createElement('div');
+                bullet.className = 'bullet';
+                ammoDisplay.appendChild(bullet);
+            }
         }
     }
 
     // Update lives
     const livesDisplay = document.getElementById('lives-display');
     livesDisplay.innerHTML = '';
-    for (let i = 0; i < gameState.lives; i++) {
+    if (gameState.lives > 5) {
         const heart = document.createElement('div');
         heart.className = 'heart';
-        if (i === gameState.lives - 1 && gameState.lives < 5) {
-            heart.classList.add('pulse');
-        }
         livesDisplay.appendChild(heart);
+
+        const countText = document.createElement('span');
+        countText.innerText = ' x ' + gameState.lives;
+        countText.style.color = '#fff';
+        countText.style.fontSize = '24px';
+        countText.style.fontWeight = 'bold';
+        countText.style.textShadow = '2px 2px 0 #000';
+        countText.style.marginLeft = '15px';
+        countText.style.alignSelf = 'center';
+        countText.style.lineHeight = '25px';
+        livesDisplay.appendChild(countText);
+    } else {
+        for (let i = 0; i < gameState.lives; i++) {
+            const heart = document.createElement('div');
+            heart.className = 'heart';
+            if (i === gameState.lives - 1 && gameState.lives < 5) {
+                heart.classList.add('pulse');
+            }
+            livesDisplay.appendChild(heart);
+        }
     }
 }
 
@@ -1897,7 +2098,8 @@ function gameLoop(timestamp) {
             gameState.ducks.push(new Duck(2));
         }
 
-        gameState.ammo = 5 + (bonusDucks * 4); // Ensure we don't immediately run out of bullets with swarms
+        let baseAmmo = (gameState.character === 1) ? 8 : 5;
+        gameState.ammo = baseAmmo + (bonusDucks * 4); // Ensure we don't immediately run out of bullets with swarms
         gameState.sessionKills = 0; // Reset consecutive kills per round
         gameState.escapedThisRound = 0; // Reset escaping penalization
         updateUI();
@@ -1911,6 +2113,29 @@ function gameLoop(timestamp) {
         }
 
         gameState.phase = 'PLAY';
+
+        // Apply Vending Blessing if active
+        if (gameState.blessingRounds > 0) {
+            gameState.blessingRounds--;
+            const roll = Math.random();
+            if (roll < 0.5) {
+                // Triple Shot
+                gameState.powerUpActive = true;
+                gameState.powerUpTimer = 3.0; // Reset to 3 seconds as per request
+                gameState.powerUpEndRound = gameState.round + 1;
+                if (!sirenSource && sirenBuffer) {
+                    sirenSource = playSound(sirenBuffer, 0.4, true);
+                }
+            } else {
+                // Seeking Missiles
+                gameState.hotdogPowerUpActive = true;
+                gameState.hotdogPowerUpTimer = 3.0; // Reset to 3 seconds as per request
+                gameState.hotdogPowerUpEndRound = gameState.round + 1;
+                if (!cyberpunkSource && cyberpunkBuffer) {
+                    cyberpunkSource = playSound(cyberpunkBuffer, 0.6, true);
+                }
+            }
+        }
     } else if (gameState.phase === 'PLAY') {
         if (gameState.ducks.length === 0) {
             gameState.phase = 'DOG';
@@ -1936,6 +2161,8 @@ function gameLoop(timestamp) {
                 triggerWin();
             } else {
                 let finishedRound = gameState.round;
+                let isNewUnlockRecord = (finishedRound >= gameState.maxRoundReached);
+                
                 gameState.round++;
                 if (gameState.round > gameState.maxRoundReached) {
                     gameState.maxRoundReached = gameState.round;
@@ -1943,7 +2170,12 @@ function gameLoop(timestamp) {
                 }
                 
                 if (finishedRound % 10 === 0) {
-                    showShadowyScreen(finishedRound);
+                    showShadowyScreen(finishedRound, isNewUnlockRecord);
+                    return;
+                }
+
+                if (finishedRound % 5 === 0 && gameState.score >= 20000) {
+                    showVendingScreen();
                     return;
                 }
 
@@ -2398,6 +2630,107 @@ function selectCharacter(id) {
     gameState.lastTime = performance.now();
     startBGM(Math.min(5, Math.floor(gameState.killCount / 10) + 1));
 }
+function showVendingScreen() {
+    // Save state
+    savedGameState = {};
+    for (let key in gameState) {
+        if (typeof gameState[key] !== 'object' || gameState[key] === null) {
+            savedGameState[key] = gameState[key];
+        }
+    }
+
+    gameState.phase = 'SHADOW'; // Pauses the game loop
+    vendingScreen.style.display = 'flex';
+    
+    // Update button states based on score
+    buyLifeBtn.disabled = gameState.score < 20000;
+    buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
+    buySkipBtn.disabled = gameState.score < 50000;
+}
+
+buyLifeBtn.onclick = () => {
+    if (gameState.score >= 20000) {
+        gameState.score -= 20000;
+        gameState.lives++;
+        playSound(jingleBuffer);
+        updateUI();
+        // Update buttons
+        buyLifeBtn.disabled = gameState.score < 20000;
+        buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
+        buySkipBtn.disabled = gameState.score < 50000;
+    }
+};
+
+buyBlessingBtn.onclick = () => {
+    if (gameState.score >= 30000 && gameState.blessingRounds <= 0) {
+        gameState.score -= 30000;
+        gameState.blessingRounds = 3;
+        playSound(jingleBuffer);
+        updateUI();
+        // Update buttons
+        buyLifeBtn.disabled = gameState.score < 20000;
+        buyBlessingBtn.disabled = true;
+        buySkipBtn.disabled = gameState.score < 50000;
+    }
+};
+
+buySkipBtn.onclick = () => {
+    if (gameState.score >= 50000) {
+        gameState.score -= 50000;
+        gameState.round += 10;
+        playSound(jingleBuffer);
+        updateUI();
+        // Update buttons
+        buyLifeBtn.disabled = gameState.score < 20000;
+        buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
+        buySkipBtn.disabled = gameState.score < 50000;
+    }
+};
+
+vendingContinueBtn.onclick = () => {
+    vendingScreen.style.display = 'none';
+    
+    // Update round display in case it was skipped
+    document.getElementById('round-display').innerText = 'R=' + gameState.round;
+
+    // Apply stats to savedGameState before restoring
+    if (savedGameState) {
+        // Keep the values we might have modified in the vending machine
+        let currentScore = gameState.score;
+        let currentLives = gameState.lives;
+        let currentRound = gameState.round;
+        let currentBlessing = gameState.blessingRounds;
+        
+        // Restore primitives
+        Object.assign(gameState, savedGameState);
+        
+        // Re-apply modified values
+        gameState.score = currentScore;
+        gameState.lives = currentLives;
+        gameState.round = currentRound;
+        gameState.blessingRounds = currentBlessing;
+        
+        savedGameState = null;
+    }
+    
+    // Ensure transient arrays are empty/reset for the next round
+    gameState.ducks = [];
+    gameState.projectiles = [];
+    gameState.airplanes = [];
+    gameState.tigers = [];
+    gameState.eagles = [];
+    gameState.hotdogs = [];
+    gameState.seekingMissiles = [];
+    gameState.floatingTexts = [];
+
+    gameState.phase = 'SPAWN';
+    gameState.lastTime = performance.now();
+    updateUI();
+    
+    // RESTART the main game loop!
+    requestAnimationFrame(gameLoop);
+};
+
 window.selectCharacter = selectCharacter;
 
 function startGame() {
@@ -2456,16 +2789,28 @@ function startGame() {
     gameState.infiniteAmmo = false;
     document.getElementById('round-display').innerText = 'R=1';
 
-    gameState.buildings = [];
-    gameState.hills = [];
     gameState.hotdogs = [];
     gameState.seekingMissiles = [];
     gameState.airplanes = [];
     gameState.tigers = [];
     gameState.floatingTexts = [];
     gameState.lastAirplaneTime = performance.now();
-    spawnBuildings(1);
-    spawnHills();
+
+    // RESTORE OR SPAWN BUILDINGS
+    if (gameState.buildingSnapshot && gameState.buildingSnapshot.length > 0) {
+        gameState.buildings = JSON.parse(JSON.stringify(gameState.buildingSnapshot));
+        gameState.hills = JSON.parse(JSON.stringify(gameState.hillSnapshot));
+    } else {
+        gameState.buildings = [];
+        gameState.hills = [];
+        spawnBuildings(1);
+        spawnHills();
+        // Save these as the current snapshot
+        gameState.buildingSnapshot = JSON.parse(JSON.stringify(gameState.buildings));
+        gameState.hillSnapshot = JSON.parse(JSON.stringify(gameState.hills));
+        localStorage.setItem('mallard_buildings', JSON.stringify(gameState.buildingSnapshot));
+        localStorage.setItem('mallard_hills', JSON.stringify(gameState.hillSnapshot));
+    }
 
     if (somberSource) {
         somberSource.stop();
@@ -2853,7 +3198,7 @@ function drawShadowyMonk(ctx, frame, timestamp) {
     ctx.restore();
 }
 
-function showShadowyScreen(round) {
+function showShadowyScreen(round, isNewUnlockRecord) {
     // Save current game state primitives before entering the shadowy figure screen
     savedGameState = {};
     for (let key in gameState) {
@@ -2867,12 +3212,9 @@ function showShadowyScreen(round) {
     shadowyScreen.style.display = 'flex';
     shadowyContinue.style.display = 'none';
     
-    const charToUnlock = (round / 10) + 1; // 10 -> 2 (Ascetic), 20 -> 3 (Arbitrator)
-    
-    // Detect if this is a first-time unlock
-    let prevMax = parseInt(localStorage.getItem('mallard_max_round_prev') || '0');
-    const isNewUnlock = (prevMax < round);
-    localStorage.setItem('mallard_max_round_prev', round.toString());
+    const needsUnlockCheck = [10, 20, 30, 40, 50, 60, 70].includes(round);
+    const charToUnlock = (round === 10) ? 2 : (round === 20 ? 3 : 0);
+    const isNewUnlock = isNewUnlockRecord && (round === 10 || round === 20);
     
     const portraitContainer = document.getElementById('shadowy-portrait-container');
 
@@ -2882,15 +3224,13 @@ function showShadowyScreen(round) {
             shadowyText.innerText = "You have proven your skill. The Ascetic joins your cause. 'A simple life, a sharp mind... and a very large staff.'";
         } else if (round === 20) {
             shadowyText.innerText = "The laws of this land are brittle. The Arbitrator shall mend them. 'Justice is a flame that consumes the wicked.'";
-        } else {
-             shadowyText.innerText = "You continue to defy the odds, traveler. Your journey is far from over.";
         }
     } else {
         portraitContainer.style.display = 'none';
         shadowyText.innerText = arnoldQuotes[Math.floor(Math.random() * arnoldQuotes.length)];
     }
     
-    if (isNewUnlock) {
+    if (isNewUnlock && charToUnlock > 0) {
         const pCtx = shadowyCharCanvas.getContext('2d');
         pCtx.clearRect(0, 0, 120, 120);
         drawPortrait(pCtx, 12, 12, charToUnlock, performance.now(), 6, false, false, false, true, false);
