@@ -166,6 +166,7 @@ fetch(`synthwave.wav?v=${CACHE_VERSION}`)
     .catch(e => console.error('Error loading synthwave music:', e));
 
 function playSound(buffer, volume = 1.0, loop = false) {
+    if (!gameState.settings.sfx) return null;
     if (!buffer) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const source = audioCtx.createBufferSource();
@@ -180,6 +181,13 @@ function playSound(buffer, volume = 1.0, loop = false) {
 }
 
 function startBGM(level) {
+    if (!gameState.settings.music) {
+        if (bgmSource) {
+            try { bgmSource.stop(); bgmSource.disconnect(); } catch(e){}
+            bgmSource = null;
+        }
+        return;
+    }
     let targetBuffer = bgmBuffer; // Default (Urban Stalker)
     if (gameState.character === 2) targetBuffer = hymnBuffer;
     if (gameState.character === 3) targetBuffer = synthwaveBuffer;
@@ -224,6 +232,7 @@ function startBGM(level) {
 }
 
 function playQuack(level) {
+    if (!gameState.settings.sfx) return;
     if (!quackBuffer) return;
 
     // Resume context if browser suspended it (required for Web Audio API policy)
@@ -458,6 +467,13 @@ const sceneCanvas = document.getElementById('almanach-scene-canvas');
 const articleTitle = document.getElementById('article-title');
 const articleContent = document.getElementById('article-content');
 const almanachBtn = document.getElementById('almanach-btn');
+const settingsBtn = document.getElementById('settings-btn');
+const settingsScreen = document.getElementById('settings-screen');
+const toggleSFXBtn = document.getElementById('toggle-sfx');
+const toggleMusicBtn = document.getElementById('toggle-music');
+const toggleFlashingBtn = document.getElementById('toggle-flashing');
+const toggleNightBtn = document.getElementById('toggle-night');
+const settingsToMenuBtn = document.getElementById('settings-to-menu');
 const almanachToMenu = document.getElementById('almanach-to-menu');
 const almanachToIndex = document.getElementById('almanach-to-index');
 const introCanvas = document.getElementById('intro-canvas');
@@ -2354,6 +2370,7 @@ function updateUI() {
 
 let flashFrames = 0;
 function flashScreen() {
+    if (!gameState.settings.flashing) return;
     flashFrames = 3; // Flash for 3 frames
 }
 
@@ -4838,22 +4855,117 @@ function showAlmanachDetail(item) {
     drawAlmanachScene(item.id, performance.now());
 }
 
-almanachBtn.onclick = async () => {
-    startScreen.style.display = 'none';
-    if (almanachData.chars.length === 0) {
-        await loadAlmanachData();
+    almanachBtn.onclick = async () => {
+        startScreen.style.display = 'none';
+        if (almanachData.chars.length === 0) {
+            await loadAlmanachData();
+        }
+        showAlmanachIndex();
+    };
+
+    almanachToMenu.onclick = () => {
+        almanachScreen.style.display = 'none';
+        startScreen.style.display = 'flex';
+    };
+
+    almanachToIndex.onclick = () => {
+        showAlmanachIndex();
+    };
+
+    // --- Settings Logic ---
+    gameState.settings = {
+        sfx: true,
+        music: true,
+        flashing: true,
+        nightMode: false
+    };
+
+    function loadSettings() {
+        const saved = localStorage.getItem('mallard_settings');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                // Migrate old 'sound' setting if it exists
+                if (parsed.hasOwnProperty('sound')) {
+                    parsed.sfx = parsed.sound;
+                    parsed.music = parsed.sound;
+                    delete parsed.sound;
+                }
+                gameState.settings = { ...gameState.settings, ...parsed };
+            } catch (e) {
+                console.error("Error loading settings:", e);
+            }
+        }
+        updateSettingsUI();
+        applyNightMode();
     }
-    showAlmanachIndex();
-};
 
-almanachToMenu.onclick = () => {
-    almanachScreen.style.display = 'none';
-    startScreen.style.display = 'flex';
-};
+    function saveSettings() {
+        localStorage.setItem('mallard_settings', JSON.stringify(gameState.settings));
+    }
 
-almanachToIndex.onclick = () => {
-    showAlmanachIndex();
-};
+    function updateSettingsUI() {
+        if (toggleSFXBtn) toggleSFXBtn.innerText = gameState.settings.sfx ? 'ON' : 'OFF';
+        if (toggleMusicBtn) toggleMusicBtn.innerText = gameState.settings.music ? 'ON' : 'OFF';
+        if (toggleFlashingBtn) toggleFlashingBtn.innerText = gameState.settings.flashing ? 'ON' : 'OFF';
+        if (toggleNightBtn) toggleNightBtn.innerText = gameState.settings.nightMode ? 'ON' : 'OFF';
+    }
+
+    function applyNightMode() {
+        const container = document.getElementById('game-container');
+        if (gameState.settings.nightMode) {
+            container.classList.add('night-mode');
+        } else {
+            container.classList.remove('night-mode');
+        }
+    }
+
+    settingsBtn.onclick = () => {
+        startScreen.style.display = 'none';
+        settingsScreen.style.display = 'flex';
+        updateSettingsUI();
+    };
+
+    settingsToMenuBtn.onclick = () => {
+        settingsScreen.style.display = 'none';
+        startScreen.style.display = 'flex';
+    };
+
+    toggleSFXBtn.onclick = () => {
+        gameState.settings.sfx = !gameState.settings.sfx;
+        updateSettingsUI();
+        saveSettings();
+    };
+
+    toggleMusicBtn.onclick = () => {
+        gameState.settings.music = !gameState.settings.music;
+        updateSettingsUI();
+        saveSettings();
+        // Feedback: stop or start music immediately
+        if (!gameState.settings.music) {
+            if (bgmSource) {
+                try { bgmSource.stop(); bgmSource.disconnect(); } catch(e){}
+                bgmSource = null;
+            }
+        } else {
+            startBGM(gameState.round);
+        }
+    };
+
+    toggleFlashingBtn.onclick = () => {
+        gameState.settings.flashing = !gameState.settings.flashing;
+        updateSettingsUI();
+        saveSettings();
+    };
+
+    toggleNightBtn.onclick = () => {
+        gameState.settings.nightMode = !gameState.settings.nightMode;
+        updateSettingsUI();
+        applyNightMode();
+        saveSettings();
+    };
+
+    loadSettings();
 
     // Start the atmosphere immediately for the menu
     gameState.lastTime = performance.now();

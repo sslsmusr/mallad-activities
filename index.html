@@ -22,7 +22,36 @@
                 <button id="start-btn" class="btn">NEW GAME</button>
                 <button id="start-3d-btn" class="btn">NEW GAME (3D)</button>
                 <button id="start-btn-fs" class="btn">NEW GAME (FULLSCREEN)</button>
-                <button id="almanach-btn" class="btn">ALMANACH</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="almanach-btn" class="btn" style="flex: 1;">ALMANACH</button>
+                    <button id="settings-btn" class="btn" style="flex: 1;">SETTINGS</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settings-screen" style="display: none;">
+            <div class="settings-content">
+                <h2 class="settings-title">SETTINGS</h2>
+                <div class="settings-options">
+                    <div class="setting-item">
+                        <span>SFX</span>
+                        <button id="toggle-sfx" class="btn toggle-btn">ON</button>
+                    </div>
+                    <div class="setting-item">
+                        <span>MUSIC</span>
+                        <button id="toggle-music" class="btn toggle-btn">ON</button>
+                    </div>
+                    <div class="setting-item">
+                        <span>FLASHING</span>
+                        <button id="toggle-flashing" class="btn toggle-btn">ON</button>
+                    </div>
+                    <div class="setting-item">
+                        <span>NIGHT MODE</span>
+                        <button id="toggle-night" class="btn toggle-btn">OFF</button>
+                    </div>
+                </div>
+                <button id="settings-to-menu" class="btn" style="margin-top: 30px;">Back to Menu</button>
             </div>
         </div>
 
@@ -147,7 +176,7 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <script type="module" src="game.js?v=56"></script>
+    <script src="game.js?v=56"></script>
 </body>
 
 </html>

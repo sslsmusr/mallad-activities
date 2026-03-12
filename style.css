@@ -697,3 +697,65 @@ body, html {
 #almanach-screen::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+
+/* Settings Screen */
+#settings-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(18, 18, 18, 0.98);
+    background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+    z-index: 500;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.settings-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 400px;
+    background: rgba(0,0,0,0.4);
+    border: 4px solid #fff;
+    padding: 30px;
+    box-shadow: 6px 6px 0 #000;
+}
+
+.settings-title {
+    font-size: 16px;
+    color: #ffeb3b;
+    text-shadow: 2px 2px 0 #000;
+    margin-bottom: 30px;
+}
+
+.settings-options {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+}
+
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #fff;
+    font-size: 10px;
+}
+
+.toggle-btn {
+    min-width: 80px;
+    padding: 8px 12px;
+}
+
+/* Night Mode Overlay applied to the container */
+#game-container.night-mode {
+    filter: brightness(0.7);
+}
