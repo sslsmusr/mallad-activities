@@ -350,6 +350,12 @@ let gameState = {
         y: -100,
         targetX: 200, 
         targetY: 50
+    },
+    settings: {
+        sfx: true,
+        music: true,
+        flashing: true,
+        nightMode: false
     }
 };
 
@@ -1275,6 +1281,13 @@ class EaglePowerUp {
         ctx.save();
         ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
 
+        // Flashing effect: 5Hz (200ms cycle)
+        const isFlash = Math.floor(timestamp / 100) % 2 === 0;
+        if (isFlash) {
+            ctx.filter = 'sepia(1) saturate(5) brightness(1.2)'; // Gold tint
+            ctx.globalAlpha = 0.5;
+        }
+
         let p = 4;
         // Flap animation
         let flap = Math.sin(timestamp / 100) * 10;
@@ -1369,6 +1382,13 @@ class HotdogPowerUp {
         ctx.save();
         ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
         
+        // Flashing effect: 5Hz (200ms cycle)
+        const isFlash = Math.floor(timestamp / 100) % 2 === 0;
+        if (isFlash) {
+            ctx.filter = 'sepia(1) saturate(5) brightness(1.2)'; // Gold tint
+            ctx.globalAlpha = 0.5;
+        }
+
         let p = 4;
         // Flap animation
         let flap = Math.sin(timestamp / 100) * 10;
@@ -1390,7 +1410,10 @@ class HotdogPowerUp {
         ctx.closePath();
         ctx.fill();
 
-        ctx.globalAlpha = 0.9;
+        if (!isFlash) {
+            ctx.globalAlpha = 0.9;
+        }
+        
         // Bun top
         ctx.fillStyle = '#c8860a';
         ctx.fillRect(-7*p, -4*p, 14*p, 3*p);
@@ -4873,12 +4896,7 @@ function showAlmanachDetail(item) {
     };
 
     // --- Settings Logic ---
-    gameState.settings = {
-        sfx: true,
-        music: true,
-        flashing: true,
-        nightMode: false
-    };
+    // (settings already initialized in gameState)
 
     function loadSettings() {
         const saved = localStorage.getItem('mallard_settings');
