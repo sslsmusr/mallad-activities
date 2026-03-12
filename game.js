@@ -317,8 +317,9 @@ let gameState = {
     portraitClicks: 0,
     baldUntil: 0,
     perfectRounds: 0, // Count of flawless rounds
-    sunClicks: 0,
-    infiniteAmmo: false,
+    sunClicksPostRings: 0,
+    isSunWinking: false,
+    cars: [],
     deathStreak: parseInt(localStorage.getItem('mallard_death_streak') || '0'),
     buildingSnapshot: JSON.parse(localStorage.getItem('mallard_buildings') || '[]'),
     hillSnapshot: JSON.parse(localStorage.getItem('mallard_hills') || '[]'),
@@ -1399,6 +1400,73 @@ class HotdogPowerUp {
     }
 }
 
+class Car {
+    constructor(w = 80, h = 45) {
+        this.width = w;
+        this.height = h;
+        this.x = canvas.width - this.width - 40;
+        this.y = -100;
+        this.vy = 80; // Slowly fall
+        this.targetGroundY = canvas.height - 85 - 20; // 20px above HUD
+        this.reachedGround = false;
+        this.isAnimating = false;
+        this.bounceTimer = 0;
+        this.isBouncingUp = true;
+    }
+
+    update(dt) {
+        if (!this.reachedGround) {
+            this.y += this.vy * dt;
+            if (this.y + this.height >= this.targetGroundY) {
+                this.y = this.targetGroundY - this.height;
+                this.reachedGround = true;
+                this.isAnimating = true;
+                playSound(boomBuffer, 1.0); // Loud thump
+            }
+        } else if (this.isAnimating) {
+            // Perform exactly one bounce animation
+            if (this.isBouncingUp) {
+                this.bounceTimer += dt * 4;
+                if (this.bounceTimer >= 1) {
+                    this.bounceTimer = 1;
+                    this.isBouncingUp = false;
+                }
+            } else {
+                this.bounceTimer -= dt * 4;
+                if (this.bounceTimer <= 0) {
+                    this.bounceTimer = 0;
+                    this.isAnimating = false; // Stay there permanently
+                    playSound(boomBuffer, 1.0); // Final thump
+                }
+            }
+        }
+    }
+
+    draw(ctx) {
+        let bounceOffset = this.reachedGround ? -this.bounceTimer * 20 : 0;
+        let dx = this.x;
+        let dy = this.y + bounceOffset;
+        
+        let sx = this.width / 80;
+        let sy = this.height / 45;
+
+        ctx.fillStyle = "#757575"; // Gray car body
+        ctx.fillRect(dx, dy + 15 * sy, 80 * sx, 20 * sy); // main base
+        ctx.fillRect(dx + 15 * sx, dy + 5 * sy, 50 * sx, 15 * sy); // cabin
+        
+        ctx.fillStyle = "#212121"; // Wheels
+        ctx.fillRect(dx + 10 * sx, dy + 30 * sy, 15 * sx, 15 * sy);
+        ctx.fillRect(dx + 55 * sx, dy + 30 * sy, 15 * sx, 15 * sy);
+        
+        ctx.fillStyle = "#B3E5FC"; // Light blue windows
+        ctx.fillRect(dx + 20 * sx, dy + 8 * sy, 18 * sx, 9 * sy);
+        ctx.fillRect(dx + 42 * sx, dy + 8 * sy, 18 * sx, 9 * sy);
+        
+        ctx.fillStyle = "#FFD600"; // Headlights
+        ctx.fillRect(dx + 75 * sx, dy + 20 * sy, 5 * sx, 5 * sy);
+    }
+}
+
 class SeekingMissile {
     constructor(x, y, targetDuck) {
         this.x = x;
@@ -1615,13 +1683,50 @@ class Projectile {
         }
 
         if (this.hitSun) {
-            if (!gameState.infiniteAmmo) {
-                gameState.sunClicks++;
-                if (gameState.sunClicks === 4) {
-                    gameState.infiniteAmmo = true;
-                    playSound(jingleBuffer, 0.8);
+            let sunX = 80;
+            let sunY = 80;
+
+            // Solar blast visual
+            this.particles = [];
+            for (let i = 0; i < 30; i++) {
+                this.particles.push({
+                    x: sunX, y: sunY,
+                    vx: (Math.random() - 0.5) * 600,
+                    vy: (Math.random() - 0.5) * 600,
+                    size: 4 + Math.random() * 8,
+                    life: 0.6 + Math.random() * 0.4,
+                    color: ['#ffeb3b', '#ff9800', '#f44336'][Math.floor(Math.random() * 3)]
+                });
+            }
+            playSound(boomBuffer, 0.4);
+
+            // Car spawn logic
+            if (gameState.perfectRounds >= 4 && gameState.cars.length < 5) {
+                gameState.sunClicksPostRings++;
+                let threshold = (gameState.cars.length === 0) ? 10 : 20;
+                if (gameState.sunClicksPostRings >= threshold) {
+                    gameState.isSunWinking = true;
+                    // Proportional growth to max 200x50
+                    let p = gameState.cars.length; 
+                    let nw = 80 + p * 30; // 80 to 200
+                    let nh = 45 + p * 1.25; // 45 to 50
+                    gameState.cars.push(new Car(nw, nh));
+                    gameState.sunClicksPostRings = 0;
                 }
             }
+
+            gameState.ducks.forEach(duck => {
+                let dx = (duck.x + duck.width / 2) - sunX;
+                let dy = (duck.y + duck.height / 2) - sunY;
+                let dist = Math.hypot(dx, dy);
+                if (!duck.isDead && dist <= 40) {
+                    duck.die(gameState.character);
+                    addScore(500, duck.x + duck.width / 2, duck.y);
+                    gameState.killCount++;
+                    gameState.sessionKills++;
+                    playQuack(duck.level);
+                }
+            });
             updateUI();
         }
 
@@ -1807,7 +1912,7 @@ class Projectile {
                 });
             }
 
-            if (gameState.ammo >= 0 && !gameState.infiniteAmmo) {
+            if (gameState.ammo >= 0) {
                 playSound(wompBuffer, 0.5);
             }
         }
@@ -1899,7 +2004,7 @@ function handleShoot(event) {
     if (now - lastShotTime < 100) return; // Prevent double-fire from overlapping events
     lastShotTime = now;
 
-    if (!gameState.infiniteAmmo && gameState.ammo <= 0) return;
+    if (gameState.ammo <= 0) return;
 
     // Get click/touch coordinates
     let rect = canvas.getBoundingClientRect();
@@ -2094,9 +2199,7 @@ function handleShoot(event) {
         gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber));
     });
 
-    if (!gameState.infiniteAmmo) {
-        gameState.ammo--;
-    }
+    gameState.ammo--;
     updateUI();
 }
 
@@ -2185,43 +2288,26 @@ function updateUI() {
 
     // Update bullets
     ammoDisplay.innerHTML = '';
-    if (gameState.infiniteAmmo) {
+    if (gameState.ammo > 5) {
+        // Display a single bullet followed by "x [ammo]"
         const bullet = document.createElement('div');
         bullet.className = 'bullet';
         ammoDisplay.appendChild(bullet);
 
-        const inf = document.createElement('span');
-        inf.innerHTML = '&infin;';
-        inf.style.color = '#fff';
-        inf.style.fontSize = '24px';
-        inf.style.fontWeight = 'bold';
-        inf.style.marginLeft = '5px';
-        inf.style.alignSelf = 'center';
-        ammoDisplay.appendChild(inf);
+        const countText = document.createElement('span');
+        countText.innerText = ' x ' + gameState.ammo;
+        countText.style.color = '#fff';
+        countText.style.fontSize = '24px';
+        countText.style.fontWeight = 'bold';
+        countText.style.marginLeft = '5px';
+        countText.style.alignSelf = 'center';
+        ammoDisplay.appendChild(countText);
     } else {
-        if (gameState.ammo > 5) {
-            // Display a single bullet followed by "x [ammo]"
+        // Display individual bullets
+        for (let i = 0; i < gameState.ammo; i++) {
             const bullet = document.createElement('div');
             bullet.className = 'bullet';
             ammoDisplay.appendChild(bullet);
-
-            const countText = document.createElement('span');
-            countText.innerText = ' x ' + gameState.ammo;
-            countText.style.color = '#fff';
-            countText.style.fontSize = '24px';
-            countText.style.fontWeight = 'bold';
-            countText.style.textShadow = '2px 2px 0 #000';
-            countText.style.marginLeft = '5px';
-            countText.style.alignSelf = 'center';
-            countText.style.lineHeight = '25px';
-            ammoDisplay.appendChild(countText);
-        } else {
-            // Display each bullet individually
-            for (let i = 0; i < gameState.ammo; i++) {
-                const bullet = document.createElement('div');
-                bullet.className = 'bullet';
-                ammoDisplay.appendChild(bullet);
-            }
         }
     }
 
@@ -2623,7 +2709,17 @@ function gameLoop(timestamp) {
         // Aviator sunglasses
         ctx.fillStyle = "black";
         ctx.fillRect(sunX - 28, sunY - 16, 24, 16); // Left lens
-        ctx.fillRect(sunX + 4, sunY - 16, 24, 16);  // Right lens
+        
+        if (gameState.isSunWinking) {
+            // Closed right eye (matching sun color base)
+            ctx.fillStyle = `rgb(255, ${g}, ${b})`;
+            ctx.fillRect(sunX + 4, sunY - 16, 24, 16);
+            ctx.fillStyle = "black";
+            ctx.fillRect(sunX + 4, sunY - 4, 24, 4); // happy wink line
+        } else {
+            ctx.fillRect(sunX + 4, sunY - 16, 24, 16);  // Normal Right lens
+        }
+
         ctx.fillRect(sunX - 4, sunY - 12, 8, 4);    // Bridge
         ctx.fillRect(sunX - 40, sunY - 12, 12, 4);   // Left arm
         ctx.fillRect(sunX + 28, sunY - 12, 12, 4);   // Right arm
@@ -2632,13 +2728,17 @@ function gameLoop(timestamp) {
         ctx.fillStyle = `rgb(255, ${g}, ${b})`;
         ctx.fillRect(sunX - 28, sunY, 4, 4);
         ctx.fillRect(sunX - 8, sunY, 4, 4);
-        ctx.fillRect(sunX + 4, sunY, 4, 4);
-        ctx.fillRect(sunX + 24, sunY, 4, 4);
+        if (!gameState.isSunWinking) {
+            ctx.fillRect(sunX + 4, sunY, 4, 4);
+            ctx.fillRect(sunX + 24, sunY, 4, 4);
+        }
 
         // Lens reflection
         ctx.fillStyle = "white";
         ctx.fillRect(sunX - 20, sunY - 12, 4, 4);
-        ctx.fillRect(sunX + 12, sunY - 12, 4, 4);
+        if (!gameState.isSunWinking) {
+            ctx.fillRect(sunX + 12, sunY - 12, 4, 4);
+        }
 
         // Mouth
         if (gameState.perfectRounds >= 4) {
@@ -2763,6 +2863,7 @@ function gameLoop(timestamp) {
         plane.update(dt);
         plane.draw(ctx);
     });
+
     // Filter out dead/offscreen planes
     gameState.airplanes = gameState.airplanes.filter(p => p.y < 1000 && p.x > -200 && p.x < canvas.width + 200);
 
@@ -3381,6 +3482,14 @@ function gameLoop(timestamp) {
     ctx.lineWidth = 3;
     ctx.stroke();
 
+    // Update & Draw Cars (drawn over background buildings and grass)
+    if (gameState.cars) {
+        gameState.cars.forEach(car => {
+            car.update(dt);
+            car.draw(ctx);
+        });
+    }
+
     // Update & Draw Eagles (drawn over background buildings and grass)
     gameState.eagles.forEach(eagle => {
         eagle.update(dt);
@@ -3834,8 +3943,9 @@ function startGame(is3D = false) {
     gameState.baldUntil = 0;
     gameState.round = 1;
     gameState.perfectRounds = 0;
-    gameState.sunClicks = 0;
-    gameState.infiniteAmmo = false;
+    gameState.sunClicksPostRings = 0;
+    gameState.isSunWinking = false;
+    gameState.cars = [];
     document.getElementById('round-display').innerText = 'R=1';
 
     gameState.hotdogs = [];
