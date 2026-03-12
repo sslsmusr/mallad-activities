@@ -2013,6 +2013,9 @@ function handleShoot(event) {
     if (event.type === 'touchstart') {
         x = event.touches[0].clientX - rect.left;
         y = event.touches[0].clientY - rect.top;
+    } else if (event.type === 'keydown') {
+        x = currentAimX;
+        y = currentAimY;
     } else {
         x = event.clientX - rect.left;
         y = event.clientY - rect.top;
@@ -2282,6 +2285,14 @@ canvas.addEventListener('touchstart', (e) => {
     e.preventDefault(); // Prevent scrolling
     handleShoot(e);
 }, { passive: false });
+
+window.addEventListener('keydown', (e) => {
+    const shootKeys = [' ', 'Enter', 'ArrowUp', '5'];
+    if (shootKeys.includes(e.key) || e.code === 'Numpad5') {
+        if (e.key === ' ' || e.key === 'ArrowUp') e.preventDefault(); // Stop scrolling
+        handleShoot({ type: 'keydown' });
+    }
+});
 
 function updateUI() {
     scoreDisplay.innerText = gameState.score.toString().padStart(6, '0');
