@@ -126,9 +126,9 @@ body, html {
 
 #intro-canvas {
     width: 250px;
-    height: 150px;
+    height: 200px;
     image-rendering: pixelated;
-    margin-bottom: -30px;
+    margin-bottom: 15px;
     z-index: 105;
 }
 

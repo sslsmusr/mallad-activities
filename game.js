@@ -519,7 +519,7 @@ const introCanvas = document.getElementById('intro-canvas');
 const introCtx = introCanvas ? introCanvas.getContext('2d') : null;
 if (introCanvas) {
     introCanvas.width = 250;
-    introCanvas.height = 150;
+    introCanvas.height = 200;
 }
 
 let almanachData = {
@@ -1180,6 +1180,12 @@ class BigHeadBoss {
         
         // Reward 10000 points
         gameState.score += 10000;
+        
+        // Global stats update
+        if (typeof incrementGlobalBossKills === 'function') {
+            incrementGlobalBossKills();
+        }
+
         gameState.floatingTexts.push({
             x: this.x + this.width / 2,
             y: this.y + this.height / 2,
@@ -2913,6 +2919,12 @@ function triggerGameOver() {
     if (gameState.score > gameState.highScore) {
         gameState.highScore = gameState.score;
         localStorage.setItem('mallard_high_score', gameState.highScore);
+
+        if (typeof updateGlobalBest === 'function') {
+            updateGlobalBest(gameState.highScore).then(isNewGlobal => {
+                if (isNewGlobal) window.globalHighScore = gameState.highScore;
+            });
+        }
     }
 
     gameOverTimer = performance.now();
@@ -2959,6 +2971,12 @@ function triggerWin() {
     if (gameState.score > gameState.highScore) {
         gameState.highScore = gameState.score;
         localStorage.setItem('mallard_high_score', gameState.highScore);
+
+        if (typeof updateGlobalBest === 'function') {
+            updateGlobalBest(gameState.highScore).then(isNewGlobal => {
+                if (isNewGlobal) window.globalHighScore = gameState.highScore;
+            });
+        }
     }
 
     winTimer = performance.now();
@@ -3432,10 +3450,21 @@ function gameLoop(timestamp) {
                 // Always side-view duck flying
                 drawDuck(introCtx, duckX, duckY, duckW, duckH, 1, performance.now() / 1000);
 
-                // Draw High Score & Chalice (Upper Left)
-                drawChalice(introCtx, 10, 10);
-                drawGoldenText(introCtx, "HI-SCORE", 10, 65, 12);
-                drawGoldenText(introCtx, gameState.highScore.toString().padStart(6, '0'), 10, 85, 14);
+                // Draw Global Boss Kills (Top row)
+                let bossKillsText = (window.globalBossKills || 0) + " PDFs PRINTED GLOBALLY";
+                drawGoldenText(introCtx, bossKillsText, 10, 20, 9);
+
+                // Draw Global High Score (Middle row, 20px space from top row)
+                drawGoldenText(introCtx, "GLOBAL BEST", 10, 50, 10);
+                let gScore = (window.globalHighScore || 0).toString().padStart(6, '0');
+                drawGoldenText(introCtx, gScore, 10, 67, 14);
+
+                // Draw Chalice (Middle, central position)
+                drawChalice(introCtx, 10, 90);
+
+                // Draw Personal High Score (Bottom row, 20px space from chalice)
+                drawGoldenText(introCtx, "MY HI-SCORE", 10, 155, 10);
+                drawGoldenText(introCtx, gameState.highScore.toString().padStart(6, '0'), 10, 172, 12);
             }
 
             // Fall through to end of function for a single requestAnimationFrame
