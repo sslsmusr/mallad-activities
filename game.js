@@ -67,7 +67,7 @@ let quackBuffer = null;
 let wompBuffer = null;
 let snickerBuffer = null;
 let jingleBuffer = null;
-let bgmBuffer = null;
+let bgmBuffers = [];
 let bgmSource = null; // To track and update the playing BGM
 let somberBuffer = null;
 let cheerfulBuffer = null;
@@ -78,9 +78,11 @@ let boomBuffer = null;
 let shootBuffer = null; // Missing declaration fix
 let cyberpunkBuffer = null;
 let cyberpunkSource = null;
-let hymnBuffer = null;
-let synthwaveBuffer = null;
+let hymnBuffers = [];
+let synthwaveBuffers = [];
 let currentBGMBuffer = null;
+let deflectBuffer = null;
+let vulnerableBuffer = null;
 let deathTextLines = [];
 let winTextLines = [];
 let winTimer = 0;
@@ -121,11 +123,14 @@ fetch(`jingle.wav?v=${CACHE_VERSION}`)
     .then(buffer => { jingleBuffer = buffer; })
     .catch(e => console.error('Error loading jingle sound:', e));
 
-fetch(`balkan_loop.wav?v=${CACHE_VERSION}`)
-    .then(response => response.arrayBuffer())
-    .then(data => audioCtx.decodeAudioData(data))
-    .then(buffer => { bgmBuffer = buffer; })
-    .catch(e => console.error('Error loading balkan loop:', e));
+// Load BGM variations
+[1, 2, 3].forEach(v => {
+    fetch(`balkan_loop_v${v}.wav?v=${CACHE_VERSION}`)
+        .then(response => response.arrayBuffer())
+        .then(data => audioCtx.decodeAudioData(data))
+        .then(buffer => { bgmBuffers[v-1] = buffer; })
+        .catch(e => console.error(`Error loading balkan loop v${v}:`, e));
+});
 
 fetch(`somber.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
@@ -157,17 +162,32 @@ fetch(`cyberpunk.wav?v=${CACHE_VERSION}`)
     .then(buffer => { cyberpunkBuffer = buffer; })
     .catch(e => console.error('Error loading cyberpunk melody:', e));
 
-fetch(`hymn.wav?v=${CACHE_VERSION}`)
-    .then(response => response.arrayBuffer())
-    .then(data => audioCtx.decodeAudioData(data))
-    .then(buffer => { hymnBuffer = buffer; })
-    .catch(e => console.error('Error loading hymn music:', e));
+// Load Character Theme variations
+[1, 2, 3].forEach(v => {
+    fetch(`hymn_v${v}.wav?v=${CACHE_VERSION}`)
+        .then(response => response.arrayBuffer())
+        .then(data => audioCtx.decodeAudioData(data))
+        .then(buffer => { hymnBuffers[v-1] = buffer; })
+        .catch(e => console.error(`Error loading hymn music v${v}:`, e));
 
-fetch(`synthwave.wav?v=${CACHE_VERSION}`)
+    fetch(`synthwave_v${v}.wav?v=${CACHE_VERSION}`)
+        .then(response => response.arrayBuffer())
+        .then(data => audioCtx.decodeAudioData(data))
+        .then(buffer => { synthwaveBuffers[v-1] = buffer; })
+        .catch(e => console.error(`Error loading synthwave music v${v}:`, e));
+});
+
+fetch(`deflect.wav?v=${CACHE_VERSION}`)
     .then(response => response.arrayBuffer())
     .then(data => audioCtx.decodeAudioData(data))
-    .then(buffer => { synthwaveBuffer = buffer; })
-    .catch(e => console.error('Error loading synthwave music:', e));
+    .then(buffer => { deflectBuffer = buffer; })
+    .catch(e => console.error('Error loading deflect sound:', e));
+
+fetch(`vulnerable.wav?v=${CACHE_VERSION}`)
+    .then(response => response.arrayBuffer())
+    .then(data => audioCtx.decodeAudioData(data))
+    .then(buffer => { vulnerableBuffer = buffer; })
+    .catch(e => console.error('Error loading vulnerable sound:', e));
 
 function playSound(buffer, volume = 1.0, loop = false) {
     if (!gameState.settings.sfx) return null;
@@ -192,14 +212,18 @@ function startBGM(level) {
         }
         return;
     }
-    let targetBuffer = bgmBuffer; // Default (Urban Stalker)
-    if (gameState.character === 2) targetBuffer = hymnBuffer;
-    if (gameState.character === 3) targetBuffer = synthwaveBuffer;
+
+    // Complexity increases every 5 levels: v1 (1-5), v2 (6-10), v3 (11+)
+    const variantIdx = Math.min(2, Math.floor((level - 1) / 5));
+
+    let targetBuffer = bgmBuffers[variantIdx]; // Default (Urban Stalker)
+    if (gameState.character === 2) targetBuffer = hymnBuffers[variantIdx];
+    if (gameState.character === 3) targetBuffer = synthwaveBuffers[variantIdx];
 
     if (!targetBuffer) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
 
-    // If the character changed (and thus the track), stop the old one
+    // If the character OR complexity variation changed, stop the old one
     if (bgmSource && currentBGMBuffer !== targetBuffer) {
         try {
             bgmSource.stop();
@@ -228,7 +252,7 @@ function startBGM(level) {
     bgmSource.playbackRate.value = 1.0 + (level - 1) * 0.1;
 
     const gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0.4; // Slightly lower volume so it's a background track
+    gainNode.gain.value = 0.2; // Reduced by another 30% from 0.28
 
     bgmSource.connect(gainNode);
     gainNode.connect(audioCtx.destination);
@@ -295,6 +319,7 @@ function addScore(base, x, y) {
 // Game State
 let gameState = {
     score: 0,
+    highScore: parseInt(localStorage.getItem('mallard_high_score') || '0'),
     killCount: 0,
     sessionKills: 0, // Kills in current round to track extra bullets
     ammo: 6,
@@ -1028,6 +1053,8 @@ class BigHeadBoss {
             "I am the sauce king of level 14.",
             "The head is big because it contains the sauce."
         ];
+        this.shieldFlash = 0;
+        this.exposedAlertGiven = false;
         this.rumbleSource = playSound(sirenSource ? null : sirenBuffer, 0.4, true); // Added fallback check
         if (this.rumbleSource) this.rumbleSource.playbackRate.value = 0.3;
     }
@@ -1092,6 +1119,23 @@ class BigHeadBoss {
             if (this.snickerTimer <= 0) this.expression = 'ANGRY';
         }
 
+        if (this.shieldFlash > 0) this.shieldFlash -= dt;
+
+        // Check for exposure alert
+        if (!this.exposedAlertGiven && this.engines.every(e => !e)) {
+            this.exposedAlertGiven = true;
+            playSound(vulnerableBuffer, 0.8);
+            gameState.floatingTexts.push({
+                x: this.x + this.width / 2,
+                y: this.y - 50,
+                text: "HEAD EXPOSED!",
+                timer: 3.0,
+                life: 3.0,
+                color: "#f44336",
+                size: 30
+            });
+        }
+
         // Taunting logic
         this.tauntTimer -= dt;
         if (this.tauntTimer <= 0) {
@@ -1101,6 +1145,7 @@ class BigHeadBoss {
                 y: this.y + 40,
                 text: taunt,
                 timer: 3.0,
+                life: 3.0,
                 color: "#FFFFFF",
                 size: 20
             });
@@ -1140,6 +1185,7 @@ class BigHeadBoss {
             y: this.y + this.height / 2,
             text: "+10000",
             timer: 2.0,
+            life: 2.0,
             color: "#FFD700",
             size: 48
         });
@@ -1182,6 +1228,11 @@ class BigHeadBoss {
             let ex = this.x + w/2 + pos - eW/2;
             let ey = this.y + h/2.5 - eH/2;
             if (this.engines[idx]) {
+                // Subtler Pulsing Highlight for active engines
+                let pulse = (Math.sin(time * 5) + 1) / 2;
+                ctx.fillStyle = `rgba(244, 67, 54, ${pulse * 0.2})`;
+                ctx.fillRect(ex - 2, ey - 2, eW + 4, eH + 4);
+
                 ctx.fillStyle = "#1a252f";
                 
                 ctx.save();
@@ -1221,6 +1272,11 @@ class BigHeadBoss {
         let headY = this.y - headSize * 0.7;
         
         // Skin (Darker)
+        if (this.engines.every(e => !e)) {
+            let pulse = (Math.sin(time * 5) + 1) / 2;
+            ctx.fillStyle = `rgba(244, 67, 54, ${pulse * 0.2})`;
+            ctx.fillRect(headX - 5, headY - 5, headSize + 10, headSize + 10);
+        }
         ctx.fillStyle = "#8d5524";
         ctx.fillRect(headX, headY, headSize, headSize);
         
@@ -1301,6 +1357,19 @@ class BigHeadBoss {
         ctx.fillRect(hbX, hbY, hbW, hbH);
         ctx.fillStyle = "#f44336";
         ctx.fillRect(hbX + 2, hbY + 2, (hbW - 4) * (this.hp / this.maxHp), hbH - 4);
+
+        // Shield Flash Effect on Head
+        if (this.shieldFlash > 0) {
+            ctx.strokeStyle = `rgba(0, 255, 255, ${this.shieldFlash * 2})`;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            // Simple hex pattern or cross-hatch overlay
+            for (let i = 0; i < 5; i++) {
+                ctx.moveTo(headX, headY + i * 20); ctx.lineTo(headX + headSize, headY + i * 20);
+                ctx.moveTo(headX + i * 20, headY); ctx.lineTo(headX + i * 20, headY + headSize);
+            }
+            ctx.stroke();
+        }
 
         ctx.restore();
     }
@@ -2433,6 +2502,19 @@ class Projectile {
                         boss.speedMult *= 1.1;
                         boss.fireRateMult *= 1.2;
                         playSound(wompBuffer, 0.8);
+                    } else {
+                        // Deflection feedback
+                        playSound(deflectBuffer, 1.0);
+                        boss.shieldFlash = 0.5; // Flash shield for 0.5s
+                        gameState.floatingTexts.push({
+                            x: boss.x + boss.width / 2,
+                            y: boss.y - 30,
+                            text: "ARMORED HEAD",
+                            timer: 2.0,
+                            life: 2.0,
+                            color: "#00ffff",
+                            size: 20
+                        });
                     }
                     delete boss.hitHead;
                 }
@@ -2826,6 +2908,13 @@ let somberSource = null;
 
 function triggerGameOver() {
     gameState.phase = 'GAME_OVER';
+    
+    // Check for high score
+    if (gameState.score > gameState.highScore) {
+        gameState.highScore = gameState.score;
+        localStorage.setItem('mallard_high_score', gameState.highScore);
+    }
+
     gameOverTimer = performance.now();
     if (bgmSource) {
         bgmSource.stop();
@@ -2865,6 +2954,13 @@ function triggerGameOver() {
 
 function triggerWin() {
     gameState.phase = 'WIN';
+
+    // Check for high score
+    if (gameState.score > gameState.highScore) {
+        gameState.highScore = gameState.score;
+        localStorage.setItem('mallard_high_score', gameState.highScore);
+    }
+
     winTimer = performance.now();
     if (bgmSource) {
         bgmSource.stop();
@@ -3335,6 +3431,11 @@ function gameLoop(timestamp) {
                 
                 // Always side-view duck flying
                 drawDuck(introCtx, duckX, duckY, duckW, duckH, 1, performance.now() / 1000);
+
+                // Draw High Score & Chalice (Upper Left)
+                drawChalice(introCtx, 10, 10);
+                drawGoldenText(introCtx, "HI-SCORE", 10, 65, 12);
+                drawGoldenText(introCtx, gameState.highScore.toString().padStart(6, '0'), 10, 85, 14);
             }
 
             // Fall through to end of function for a single requestAnimationFrame
@@ -3585,9 +3686,8 @@ function gameLoop(timestamp) {
 
     // Eagles moved down here so they are not covered by background buildings
     // Auto-start BGM mid-game if it finishes loading late
-    if (!bgmSource && bgmBuffer && gameState.phase !== 'START' && gameState.phase !== 'GAME_OVER' && gameState.phase !== 'WIN') {
-        let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
-        startBGM(currentLevel);
+    if (!bgmSource && bgmBuffers[0] && gameState.phase !== 'START' && gameState.phase !== 'GAME_OVER' && gameState.phase !== 'WIN') {
+        startBGM(gameState.round);
     }
 
     // Phase Logic
@@ -3607,8 +3707,7 @@ function gameLoop(timestamp) {
         gameState.escapedThisRound = 0; // Reset escaping penalization
         updateUI();
 
-        let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
-        startBGM(currentLevel); // Make sure the music speed updates each round!
+        startBGM(gameState.round); // Make sure the music speed updates each round!
 
         spawnBuildings(gameState.round, false);
         if (gameState.round % 5 === 0) {
@@ -4511,7 +4610,7 @@ function selectCharacter(id) {
     
     gameState.phase = 'SPAWN';
     gameState.lastTime = performance.now();
-    startBGM(Math.min(5, Math.floor(gameState.killCount / 10) + 1));
+    startBGM(gameState.round);
 }
 function showVendingScreen() {
     // Save state
@@ -5411,6 +5510,74 @@ function drawBomber(pCtx, x, y, w, h, progress) {
     pCtx.fillRect(w/2.6 - eW/2, -eH/2, eW, eH);
     pCtx.fillStyle = "rgba(173, 216, 230, 0.6)"; // Cockpit
     pCtx.fillRect(-w/20, -h/2.5, w/10, h/4);
+    pCtx.restore();
+}
+
+function drawChalice(pCtx, x, y) {
+    const pSize = 4;
+    pCtx.save();
+    pCtx.translate(x, y);
+
+    // Golden colors
+    const gold = "#FFD700";
+    const darkGold = "#B8860B";
+    const highlight = "#FFFACD";
+
+    // Chalice Body (8-bit style)
+    pCtx.fillStyle = gold;
+    // Rim
+    pCtx.fillRect(0, 0, pSize * 8, pSize);
+    // Bowl
+    pCtx.fillRect(pSize, pSize, pSize * 6, pSize * 3);
+    pCtx.fillRect(pSize * 2, pSize * 4, pSize * 4, pSize);
+    // Stem
+    pCtx.fillRect(pSize * 3, pSize * 5, pSize * 2, pSize * 3);
+    // Base
+    pCtx.fillRect(pSize * 2, pSize * 8, pSize * 4, pSize);
+    pCtx.fillRect(pSize, pSize * 9, pSize * 6, pSize);
+
+    // Shading/Highlight
+    pCtx.fillStyle = darkGold;
+    pCtx.fillRect(pSize * 7, 0, pSize, pSize);
+    pCtx.fillRect(pSize * 6, pSize, pSize, pSize * 3);
+    pCtx.fillRect(pSize * 5, pSize * 4, pSize, pSize);
+    pCtx.fillRect(pSize * 4, pSize * 5, pSize, pSize * 3);
+    pCtx.fillRect(pSize * 5, pSize * 8, pSize, pSize);
+    pCtx.fillRect(pSize * 6, pSize * 9, pSize, pSize);
+
+    pCtx.fillStyle = highlight;
+    pCtx.fillRect(pSize, 0, pSize, pSize);
+    pCtx.fillRect(pSize, pSize, pSize, pSize);
+
+    pCtx.restore();
+}
+
+function drawGoldenText(pCtx, text, x, y, size = 12) {
+    pCtx.save();
+    // Use the existing pixel font logic but with golden style
+    // The main code uses pixelFont map in gameLoop, so I'll replicate the logic or use standard font if preferred
+    // The user specifically asked for "fancy golden 8-bit text"
+    
+    // We'll use the Press Start 2P font for simplicity if available, or custom pixel logic
+    // Actually, Mallard Madness has a custom pixel font logic in drawUI/gameLoop
+    // Let's use standard font for the start screen for better readability but styled gold
+    
+    pCtx.font = `${size}px 'Press Start 2P', cursive`;
+    pCtx.textAlign = 'left';
+    
+    // Drop shadow
+    pCtx.fillStyle = 'rgba(0,0,0,0.5)';
+    pCtx.fillText(text, x + 2, y + 2);
+    
+    // Golden gradient
+    const grad = pCtx.createLinearGradient(x, y - size, x, y);
+    grad.addColorStop(0, '#FFFACD'); // Highlight
+    grad.addColorStop(0.5, '#FFD700'); // Gold
+    grad.addColorStop(1, '#B8860B'); // Dark gold
+    
+    pCtx.fillStyle = grad;
+    pCtx.fillText(text, x, y);
+    
     pCtx.restore();
 }
 
