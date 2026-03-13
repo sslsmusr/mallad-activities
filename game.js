@@ -99,6 +99,54 @@ fetch(`death_text.txt?v=${CACHE_VERSION}`)
     .then(text => { deathTextLines = text.split('\n'); })
     .catch(e => console.error('Error loading death text', e));
 
+const pixelFont = {
+    'A': ["###", "# #", "###", "# #", "# #"],
+    'B': ["###", "# #", "###", "# #", "###"],
+    'C': ["###", "#  ", "#  ", "#  ", "###"],
+    'D': ["## ", "# #", "# #", "# #", "## "],
+    'E': ["###", "#  ", "###", "#  ", "###"],
+    'F': ["###", "#  ", "###", "#  ", "#  "],
+    'G': ["###", "#  ", "# #", "# #", "###"],
+    'H': ["# #", "# #", "###", "# #", "# #"],
+    'I': ["###", " # ", " # ", " # ", "###"],
+    'J': ["  #", "  #", "  #", "  #", "## "],
+    'K': ["# #", "# #", "## ", "# #", "# #"],
+    'L': ["#  ", "#  ", "#  ", "#  ", "###"],
+    'M': ["# #", "###", "###", "# #", "# #"],
+    'N': ["# #", "###", "###", "###", "# #"],
+    'O': ["###", "# #", "# #", "# #", "###"],
+    'P': ["###", "# #", "###", "#  ", "#  "],
+    'Q': ["###", "# #", "###", "  #", "  #"],
+    'R': ["###", "# #", "###", "## ", "# #"],
+    'S': ["###", "#  ", "###", "  #", "###"],
+    'T': ["###", " # ", " # ", " # ", " # "],
+    'U': ["# #", "# #", "# #", "# #", "###"],
+    'V': ["# #", "# #", "# #", "# #", " # "],
+    'W': ["# #", "# #", "###", "###", "# #"],
+    'X': ["# #", "# #", " # ", "# #", "# #"],
+    'Y': ["# #", "# #", " # ", " # ", " # "],
+    'Z': ["###", "  #", " # ", "#  ", "###"],
+    '+': ["   ", " # ", "###", " # ", "   "],
+    '0': ["###", "# #", "# #", "# #", "###"],
+    '1': [" ##", "  #", "  #", "  #", "###"],
+    '2': ["###", "  #", "###", "#  ", "###"],
+    '3': ["###", "  #", "###", "  #", "###"],
+    '4': ["# #", "# #", "###", "  #", "  #"],
+    '5': ["###", "#  ", "###", "  #", "###"],
+    '6': ["###", "#  ", "###", "# #", "###"],
+    '7': ["###", "  #", "  #", "  #", "  #"],
+    '8': ["###", "# #", "###", "# #", "###"],
+    '9': ["###", "# #", "###", "  #", "###"],
+    ' ': ["   ", "   ", "   ", "   ", "   "],
+    '.': ["   ", "   ", "   ", "   ", " # "],
+    ',': ["   ", "   ", "   ", " # ", " # "],
+    "'": [" # ", " # ", "   ", "   ", "   "],
+    '(': [" # ", "#  ", "#  ", "#  ", " # "],
+    ')': [" # ", "  #", "  #", "  #", " # "],
+    '!': [" # ", " # ", " # ", "   ", " # "],
+    '-': ["   ", "   ", "###", "   ", "   "]
+};
+
 fetch(`win_text.txt?v=${CACHE_VERSION}`)
     .then(r => r.text())
     .then(text => { winTextLines = text.split('\n'); })
@@ -550,12 +598,40 @@ async function loadAlmanachData() {
 }
 function resizeCanvas() {
     const container = document.getElementById('game-container');
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
+    if (!container) return;
+    
+    // Use offset/client dimensions for accurate sizing
+    const w = container.clientWidth || window.innerWidth;
+    const h = container.clientHeight || window.innerHeight;
+    
+    // Prevent zero-size canvas which can lead to black screens
+    if (w > 0 && h > 0) {
+        canvas.width = w;
+        canvas.height = h;
+    }
+    
     // Keep pixel art crisp
     ctx.imageSmoothingEnabled = false;
 }
-window.addEventListener('resize', resizeCanvas);
+
+// More robust resize triggers for mobile/fullscreen transitions
+window.addEventListener('resize', () => {
+    resizeCanvas();
+    // Re-check after a small delay for async mobile layout shifts
+    setTimeout(resizeCanvas, 100);
+    setTimeout(resizeCanvas, 500); 
+});
+
+// Fullscreen specifically can take a while to "settle" on iOS
+document.addEventListener('fullscreenchange', () => {
+    setTimeout(resizeCanvas, 100);
+    setTimeout(resizeCanvas, 500);
+});
+document.addEventListener('webkitfullscreenchange', () => {
+    setTimeout(resizeCanvas, 100);
+    setTimeout(resizeCanvas, 500);
+});
+
 resizeCanvas(); // Initial size
 
 class Duck {
@@ -2538,6 +2614,11 @@ class Projectile {
                     try { this.targetBomber.rumbleSource.stop(); } catch(e){}
                 }
                 playSound(boomBuffer, 1.0);
+                
+                // Trigger global stats for Sun's PDF notifications
+                if (typeof incrementGlobalBomberKills === 'function') {
+                    incrementGlobalBomberKills();
+                }
             }
             
             // Play triumphant melody for 2 seconds
@@ -3317,65 +3398,190 @@ function spawnPermanentClouds(count) {
 
 // Game Loop
 
-function drawPresenceIndicator(ctx) {
+function drawPresenceIndicator(ctx, dt) {
     const presences = window.activePresences || [];
     if (presences.length === 0) return;
 
-    const margin = 10;
-    const faceSize = 10;
-    const spacing = 4;
+    const margin = 20;
+    const rectWidth = 200;
+    const rectHeight = 50;
+    const faceSize = 40;
     
-    // Up to 10 faces
-    const facesToDraw = presences.slice(0, 10);
-    const startX = canvas.width - margin - (facesToDraw.length * (faceSize + spacing));
-    // Above the 80px UI HUD at the bottom
-    const startY = canvas.height - 80 - margin - faceSize;
+    // Up to 15 faces for a crowded look
+    const facesToDraw = presences.slice(0, 15);
+    
+    // Position rectangle above the HUD (bottom-right)
+    const rectX = canvas.width - rectWidth - margin;
+    const rectY = canvas.height - 80 - margin - rectHeight;
 
     facesToDraw.forEach((p, i) => {
-        const x = startX + i * (faceSize + spacing);
-        const y = startY;
+        // Deterministic "random" based on ID for stable positions
+        const id = p.id || String(i);
+        let hash = 0;
+        for (let j = 0; j < id.length; j++) {
+            hash = ((hash << 5) - hash) + id.charCodeAt(j);
+            hash |= 0;
+        }
+        const seed = Math.abs(hash);
+        
+        // Random pos inside 200x50 area
+        const rx = (seed % (rectWidth - faceSize));
+        const ry = ((seed >> 5) % (rectHeight - faceSize));
+        
+        const x = rectX + rx;
+        const y = rectY + ry;
+        
+        // Subtle color shifting based on seed
+        const hueShift = (seed % 20) - 10; // -10 to +10
+        const lightShift = (seed % 8) - 4; // -4 to +4
         
         ctx.save();
         ctx.translate(x, y);
-        
         ctx.imageSmoothingEnabled = false;
 
-        if (p.characterId === 1) { // Urban Stalker: Black face, Green headband
-            ctx.fillStyle = "#333";
-            ctx.fillRect(0, 0, 10, 10);
-            ctx.fillStyle = "#4caf50";
-            ctx.fillRect(0, 2, 10, 2);
-            // eyes
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(2, 5, 2, 1);
-            ctx.fillRect(6, 5, 2, 1);
-        } else if (p.characterId === 2) { // Ascetic: Saffron face, Brown hood
-            ctx.fillStyle = "#ff9800";
-            ctx.fillRect(1, 1, 8, 8);
-            ctx.fillStyle = "#5d4037"; // dark brown hood
-            ctx.fillRect(0, 0, 10, 2);
-            ctx.fillRect(0, 0, 2, 10);
-            ctx.fillRect(8, 0, 2, 10);
-        } else if (p.characterId === 3) { // Arbitrator: White face, Golden halo
-            ctx.fillStyle = "#f5f5f5";
-            ctx.fillRect(2, 3, 6, 6);
-            ctx.fillStyle = "#ffd700"; // gold halo
-            ctx.fillRect(1, 1, 8, 1);
-            ctx.fillRect(1, 1, 1, 2);
-            ctx.fillRect(8, 1, 1, 2);
+        // Rounded Clipping for Face
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(0, 0, 40, 40, 8);
+        } else {
+            ctx.rect(0, 0, 40, 40);
+        }
+        ctx.clip();
+
+        if (p.characterId === 1) { // Urban Stalker: Beige face, Purple outline
+            // Purple Outline/Hood
+            ctx.fillStyle = `hsl(${270 + hueShift}, 40%, ${30 + lightShift}%)`;
+            ctx.fillRect(0, 0, 40, 40);
+            // Beige Face
+            ctx.fillStyle = `hsl(${34 + hueShift}, 50%, ${85 + lightShift}%)`;
+            ctx.fillRect(6, 6, 28, 28);
+            // Purple Mask/Band
+            ctx.fillStyle = `hsl(${270 + hueShift}, 50%, ${40 + lightShift}%)`;
+            ctx.fillRect(0, 10, 40, 8);
+            // Glowing Green Eyes
+            ctx.fillStyle = "#4af14e";
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = "#4af14e";
+            ctx.fillRect(10, 12, 6, 4);
+            ctx.fillRect(24, 12, 6, 4);
+        } else if (p.characterId === 2) { // Ascetic: Saffron palette
+            // Saffron Robe
+            ctx.fillStyle = `hsl(${35 + hueShift}, 100%, ${50 + lightShift}%)`;
+            ctx.fillRect(0, 0, 40, 40);
+            // Tan Face
+            ctx.fillStyle = `hsl(30, 60%, ${80 + lightShift}%)`;
+            ctx.fillRect(10, 10, 20, 22);
+            // Eyes
+            ctx.fillStyle = "#5d4037";
+            ctx.fillRect(12, 18, 5, 2);
+            ctx.fillRect(23, 18, 5, 2);
+            // Red dot
+            ctx.fillStyle = "#c62828";
+            ctx.fillRect(19, 13, 2, 2);
+        } else if (p.characterId === 3) { // Arbitrator: White/Gold palette
+            // Body Background
+            ctx.fillStyle = `hsl(210, 15%, ${40 + lightShift}%)`;
+            ctx.fillRect(0, 0, 40, 40);
+            // White Wig
+            ctx.fillStyle = `hsl(0, 0%, ${98 + lightShift}%)`;
+            ctx.fillRect(6, 6, 28, 30);
+            ctx.fillRect(4, 12, 32, 24);
+            // Face
+            ctx.fillStyle = "#ffccbc";
+            ctx.fillRect(12, 14, 16, 18);
+            // Gold Halo
+            ctx.fillStyle = `hsl(${48 + hueShift}, 100%, ${50 + lightShift}%)`;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.beginPath();
+            ctx.arc(20, 10, 15, 0, Math.PI, true);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = ctx.fillStyle;
+            ctx.stroke();
+            // Serious Eyes
+            ctx.fillStyle = "#111";
+            ctx.fillRect(14, 20, 4, 2);
+            ctx.fillRect(22, 20, 4, 2);
         } else {
             ctx.fillStyle = "#777";
-            ctx.fillRect(0, 0, 10, 10);
+            ctx.fillRect(0, 0, 40, 40);
         }
         
         ctx.restore();
     });
 
-    if (presences.length > 10) {
+    if (presences.length > 15) {
         ctx.fillStyle = "white";
-        ctx.font = "8px 'Press Start 2P', cursive";
+        ctx.shadowBlur = 0;
+        ctx.font = "12px 'Press Start 2P', cursive";
         ctx.textAlign = "right";
-        ctx.fillText("and many more", canvas.width - margin, canvas.height - margin - faceSize - 5);
+        ctx.fillText("and many more", canvas.width - margin, rectY - 15);
+    }
+
+    // Death Notifications (Gray Speech Bubble with Black Pixel-Art Letters)
+    if (window.presenceNotification && window.presenceNotification.timer > 0) {
+        window.presenceNotification.timer -= dt;
+        
+        const notifyText = window.presenceNotification.text.toUpperCase();
+        const pSize = 3;
+        const charWidth = 4 * pSize;
+        const charHeight = 6 * pSize;
+        const totalTextWidth = notifyText.length * charWidth;
+        const padding = 10;
+        
+        const bubbleWidth = totalTextWidth + padding * 2;
+        const bubbleHeight = charHeight + padding * 2;
+        
+        // Position above the "and many more" or the icons
+        const notifyY = (presences.length > 15) ? rectY - 35 - bubbleHeight : rectY - 15 - bubbleHeight;
+        const notifyX = canvas.width - margin - bubbleWidth;
+
+        ctx.save();
+        
+        // Shadow for depth
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath();
+        ctx.roundRect(notifyX + 4, notifyY + 4, bubbleWidth, bubbleHeight, 5);
+        ctx.fill();
+
+        // Bubble Background (Gray)
+        ctx.fillStyle = "#bdbdbd";
+        ctx.beginPath();
+        ctx.roundRect(notifyX, notifyY, bubbleWidth, bubbleHeight, 8);
+        ctx.fill();
+        
+        // Bubble Border
+        ctx.strokeStyle = "#424242";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Bubble Tail
+        ctx.beginPath();
+        ctx.moveTo(canvas.width - margin - 30, notifyY + bubbleHeight);
+        ctx.lineTo(canvas.width - margin - 20, notifyY + bubbleHeight + 10);
+        ctx.lineTo(canvas.width - margin - 10, notifyY + bubbleHeight);
+        ctx.fillStyle = "#bdbdbd";
+        ctx.fill();
+        ctx.stroke();
+
+        // Black Pixel-Art Letters
+        ctx.fillStyle = "black";
+        for (let i = 0; i < notifyText.length; i++) {
+            const char = notifyText[i];
+            const pattern = pixelFont[char] || pixelFont[' '];
+            const startCharX = notifyX + padding + i * charWidth;
+            const startCharY = notifyY + padding;
+            
+            for (let row = 0; row < 5; row++) {
+                for (let col = 0; col < 3; col++) {
+                    if (pattern[row][col] === '#') {
+                        ctx.fillRect(startCharX + col * pSize, startCharY + row * pSize, pSize, pSize);
+                    }
+                }
+            }
+        }
+
+        ctx.restore();
     }
 }
 
@@ -3524,8 +3730,9 @@ function gameLoop(timestamp) {
                 // Always side-view duck flying
                 drawDuck(introCtx, duckX, duckY, duckW, duckH, 1, performance.now() / 1000);
 
-                // Draw Global Boss Kills (Top row)
-                let bossKillsText = (window.globalBossKills || 0) + " PDFs PRINTED GLOBALLY";
+                // Draw Global Boss & Bomber Kills (Top row)
+                let totalPDFs = (window.globalBossKills || 0) + (window.globalBomberKills || 0);
+                let bossKillsText = totalPDFs + " PDFs PRINTED GLOBALLY";
                 drawGoldenText(introCtx, bossKillsText, 10, 20, 9);
 
                 // Draw Global High Score (Middle row, 20px space from top row)
@@ -3652,6 +3859,77 @@ function gameLoop(timestamp) {
             ctx.fillRect(tX + pSize, tY, pSize, pSize * 2); // root thumb fold
             ctx.fillRect(tX + pSize * 5, tY + pSize, pSize, pSize); // finger 1 crease
             ctx.fillRect(tX + pSize * 5, tY + pSize * 3, pSize, pSize); // finger 2 crease
+        }
+
+        // --- Sun's Coded PDF Notifications ---
+        if (window.sunNotification && window.sunNotification.timer > 0) {
+            window.sunNotification.timer -= dt;
+            
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // UI layer style
+            
+            const notifyText = window.sunNotification.text.toUpperCase();
+            const pSize = 3;
+            const charWidth = 4 * pSize;
+            const charHeight = 6 * pSize;
+            const totalTextWidth = notifyText.length * charWidth;
+            const padding = 10;
+            const bubbleWidth = totalTextWidth + padding * 2;
+            const bubbleHeight = charHeight + padding * 2;
+            
+            // Position next to the sun (Top left area)
+            const sunX = 80;
+            const sunY = 80;
+            const sunRadius = 40;
+            const bubbleX = sunX + sunRadius + 20;
+            const bubbleY = sunY - bubbleHeight / 2;
+            
+            // Shadow
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(bubbleX + 6, bubbleY + 6, bubbleWidth, bubbleHeight);
+            
+            // Bubble Background (Gray)
+            ctx.fillStyle = "#ccc";
+            ctx.fillRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
+            
+            // Border
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 4;
+            ctx.strokeRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
+            
+            // Tail pointing to sun
+            ctx.beginPath();
+            ctx.moveTo(bubbleX, sunY - 5);
+            ctx.lineTo(bubbleX - 15, sunY);
+            ctx.lineTo(bubbleX, sunY + 5);
+            ctx.fillStyle = "#ccc";
+            ctx.fill();
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Re-fill connecting point to hide border overlap
+            ctx.fillRect(bubbleX - 1, sunY - 10, 5, 20);
+
+            // Draw coded PDF text
+            let curX = bubbleX + padding;
+            let curY = bubbleY + padding;
+            for (let i = 0; i < notifyText.length; i++) {
+                const char = notifyText[i];
+                if (pixelFont[char]) {
+                    ctx.fillStyle = "black";
+                    const grid = pixelFont[char];
+                    for (let row = 0; row < 6; row++) {
+                        for (let col = 0; col < 4; col++) {
+                            if (grid[row] & (1 << (3 - col))) {
+                                ctx.fillRect(curX + col * pSize, curY + row * pSize, pSize, pSize);
+                            }
+                        }
+                    }
+                }
+                curX += charWidth;
+            }
+            ctx.restore();
         }
     }
 
@@ -4558,53 +4836,6 @@ function gameLoop(timestamp) {
         ft.timer -= dt;
         ft.life -= dt;
 
-        const pixelFont = {
-            'A': ["###", "# #", "###", "# #", "# #"],
-            'B': ["###", "# #", "###", "# #", "###"],
-            'C': ["###", "#  ", "#  ", "#  ", "###"],
-            'D': ["## ", "# #", "# #", "# #", "## "],
-            'E': ["###", "#  ", "###", "#  ", "###"],
-            'F': ["###", "#  ", "###", "#  ", "#  "],
-            'G': ["###", "#  ", "# #", "# #", "###"],
-            'H': ["# #", "# #", "###", "# #", "# #"],
-            'I': ["###", " # ", " # ", " # ", "###"],
-            'J': ["  #", "  #", "  #", "  #", "## "],
-            'K': ["# #", "# #", "## ", "# #", "# #"],
-            'L': ["#  ", "#  ", "#  ", "#  ", "###"],
-            'M': ["# #", "###", "###", "# #", "# #"],
-            'N': ["# #", "###", "###", "###", "# #"],
-            'O': ["###", "# #", "# #", "# #", "###"],
-            'P': ["###", "# #", "###", "#  ", "#  "],
-            'Q': ["###", "# #", "###", "  #", "  #"],
-            'R': ["###", "# #", "###", "## ", "# #"],
-            'S': ["###", "#  ", "###", "  #", "###"],
-            'T': ["###", " # ", " # ", " # ", " # "],
-            'U': ["# #", "# #", "# #", "# #", "###"],
-            'V': ["# #", "# #", "# #", "# #", " # "],
-            'W': ["# #", "# #", "###", "###", "# #"],
-            'X': ["# #", "# #", " # ", "# #", "# #"],
-            'Y': ["# #", "# #", " # ", " # ", " # "],
-            'Z': ["###", "  #", " # ", "#  ", "###"],
-            '+': ["   ", " # ", "###", " # ", "   "],
-            '0': ["###", "# #", "# #", "# #", "###"],
-            '1': [" ##", "  #", "  #", "  #", "###"],
-            '2': ["###", "  #", "###", "#  ", "###"],
-            '3': ["###", "  #", "###", "  #", "###"],
-            '4': ["# #", "# #", "###", "  #", "  #"],
-            '5': ["###", "#  ", "###", "  #", "###"],
-            '6': ["###", "#  ", "###", "# #", "###"],
-            '7': ["###", "  #", "  #", "  #", "  #"],
-            '8': ["###", "# #", "###", "# #", "###"],
-            '9': ["###", "# #", "###", "  #", "###"],
-            ' ': ["   ", "   ", "   ", "   ", "   "],
-            '.': ["   ", "   ", "   ", "   ", " # "],
-            ',': ["   ", "   ", "   ", " # ", " # "],
-            "'": [" # ", " # ", "   ", "   ", "   "],
-            '(': [" # ", "#  ", "#  ", "#  ", " # "],
-            ')': [" # ", "  #", "  #", "  #", " # "],
-            '!': [" # ", " # ", " # ", "   ", " # "],
-            '-': ["   ", "   ", "###", "   ", "   "]
-        };
 
         let totalWidth = ft.text.length * 4 * pSize;
         let startX = ft.x - totalWidth / 2;
@@ -4663,7 +4894,7 @@ function gameLoop(timestamp) {
     });
     gameState.floatingTexts = gameState.floatingTexts.filter(ft => ft.life > 0);
 
-    drawPresenceIndicator(ctx);
+    drawPresenceIndicator(ctx, dt);
 
     requestAnimationFrame(gameLoop);
 }
