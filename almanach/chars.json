@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "name": "The Urban Stalker",
+    "text": "Master of the hunt. Starts with 8 shells. Efficiency is his hallmark. He walks the concrete jungle with the same grace as the deep forest."
+  },
+  {
+    "id": 2,
+    "name": "The Ascetic",
+    "text": "Divine protection. Starts with 6 lives. Persistence overcomes all. A seeker of truth who has found that survival is the ultimate meditation."
+  },
+  {
+    "id": 3,
+    "name": "The Arbitrator",
+    "text": "Law & Order. 20% bonus points. Justice has its rewards. He brings a cold, calculated judgment to the chaos of the valley."
+  }
+]

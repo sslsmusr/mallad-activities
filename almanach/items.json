@@ -1,0 +1,17 @@
+[
+  {
+    "id": "vending",
+    "name": "Divine Automaton",
+    "text": "A machine that offers sacred boons—Life, Blessing, or Skip—to those who have earned enough gold in their journey."
+  },
+  {
+    "id": "triple",
+    "name": "Eagle's Breath",
+    "text": "The power of the Eagle. It enhances your weapon to strike with three projectiles simultaneously, tripling your righteous fury."
+  },
+  {
+    "id": "missile",
+    "name": "Hotdog's Hounds",
+    "text": "The bounty of the Hotdog. It deploys seeking missiles that automatically track and destroy the valley's inhabitants with mechanical precision."
+  }
+]

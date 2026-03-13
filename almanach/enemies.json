@@ -1,0 +1,32 @@
+[
+  {
+    "id": "duck",
+    "name": "The Common Mallard",
+    "text": "The primary denizen of our valley. They fly faster as the hunter's skill improves. Every 10 rounds, they migrate as the seasons shift from Spring to Winter."
+  },
+  {
+    "id": "tiger",
+    "name": "Golden Tiger",
+    "text": "A rare predator that only descends from elite Level 4 ducks. Extremely fast and dangerous. Bringing one down is a feat of legendary skill and yields high rewards."
+  },
+  {
+    "id": "airplane",
+    "name": "Sky Banner",
+    "text": "A metal bird from the world beyond. It flys across the heavens carrying wordly banners. Hit it to reclaim some of its treasures."
+  },
+  {
+    "id": "bomber",
+    "name": "Heavy Bomber",
+    "text": "A shadow of war that arrives randomly. Strike it down to clear the skies of lesser avian threats, or face the consequences if it escapes your reach."
+  },
+  {
+    "id": "dog",
+    "name": "The Cynical Retriever",
+    "text": "Your faithful yet judgmental companion. He mocks your failures with a snicker and celebrates your success with a jingle, reminding us all of the futility of the hunt."
+  },
+  {
+    "id": "shadow",
+    "name": "The Shadowy Figure",
+    "text": "A mysterious monk who offers wisdom and insults in equal measure. He dwells in the deeper layers of the reality, watching the hunter's every move."
+  }
+]
