@@ -2,24 +2,31 @@
     'use strict';
 
     // Security: Anti-Tamper & DevTools Detection
+    window.MALLARD_SECURITY = !(/debug=(1|true)/.test(window.location.search));
+
     const blockDevTools = () => {
-        /*
+        if (!window.MALLARD_SECURITY) {
+            console.log("Security protections disabled for debugging.");
+        }
+
         // Trap: debugger statement causes a pause if DevTools is open
         setInterval(() => {
+            if (!window.MALLARD_SECURITY) return;
             const start = performance.now();
             debugger;
             if (performance.now() - start > 100) {
                 // If it took a long time, they probably hit a breakpoint or are tracing
                 console.clear();
-                document.body.innerHTML = '<div style="color:red; background:black; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;">ACCESS DENIED: TAMPERING DETECTED</div>';
+                document.body.innerHTML = '<div style="color:red; background:black; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:sans-serif; text-align:center; font-size:24px;"><b>ACCESS DENIED</b><br><span style="font-size:16px; margin-top:10px;">TAMPERING DETECTED</span></div>';
             }
         }, 1000);
 
         // Block Right Click
-        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('contextmenu', e => window.MALLARD_SECURITY && e.preventDefault());
 
         // Block Inspection Hotkeys (F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U)
         document.addEventListener('keydown', e => {
+            if (!window.MALLARD_SECURITY) return;
             if (
                 e.keyCode === 123 || // F12
                 (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || // Ctrl+Shift+I/J
@@ -30,18 +37,17 @@
             }
         });
 
-        // Silence Console
-        const noop = () => {};
-        window.console.log = noop;
-        window.console.warn = noop;
-        window.console.error = noop;
-        window.console.debug = noop;
-        window.console.info = noop;
-        */
-        console.log("Security protections disabled for debugging.");
+        // Proxy Console to allow toggling
+        const consoleKeys = ['log', 'warn', 'error', 'debug', 'info'];
+        consoleKeys.forEach(key => {
+            const original = window.console[key];
+            window.console[key] = (...args) => {
+                if (!window.MALLARD_SECURITY) original.apply(window.console, args);
+            };
+        });
     };
     
-    // blockDevTools(); // DISABLED for debugging as requested
+    blockDevTools();
 
     const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -2915,6 +2921,11 @@ let somberSource = null;
 function triggerGameOver() {
     gameState.phase = 'GAME_OVER';
     
+    // Global presence update
+    if (typeof removePlayerPresence === 'function') {
+        removePlayerPresence();
+    }
+    
     // Check for high score
     if (gameState.score > gameState.highScore) {
         gameState.highScore = gameState.score;
@@ -3305,6 +3316,69 @@ function spawnPermanentClouds(count) {
 }
 
 // Game Loop
+
+function drawPresenceIndicator(ctx) {
+    const presences = window.activePresences || [];
+    if (presences.length === 0) return;
+
+    const margin = 10;
+    const faceSize = 10;
+    const spacing = 4;
+    
+    // Up to 10 faces
+    const facesToDraw = presences.slice(0, 10);
+    const startX = canvas.width - margin - (facesToDraw.length * (faceSize + spacing));
+    // Above the 80px UI HUD at the bottom
+    const startY = canvas.height - 80 - margin - faceSize;
+
+    facesToDraw.forEach((p, i) => {
+        const x = startX + i * (faceSize + spacing);
+        const y = startY;
+        
+        ctx.save();
+        ctx.translate(x, y);
+        
+        ctx.imageSmoothingEnabled = false;
+
+        if (p.characterId === 1) { // Urban Stalker: Black face, Green headband
+            ctx.fillStyle = "#333";
+            ctx.fillRect(0, 0, 10, 10);
+            ctx.fillStyle = "#4caf50";
+            ctx.fillRect(0, 2, 10, 2);
+            // eyes
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(2, 5, 2, 1);
+            ctx.fillRect(6, 5, 2, 1);
+        } else if (p.characterId === 2) { // Ascetic: Saffron face, Brown hood
+            ctx.fillStyle = "#ff9800";
+            ctx.fillRect(1, 1, 8, 8);
+            ctx.fillStyle = "#5d4037"; // dark brown hood
+            ctx.fillRect(0, 0, 10, 2);
+            ctx.fillRect(0, 0, 2, 10);
+            ctx.fillRect(8, 0, 2, 10);
+        } else if (p.characterId === 3) { // Arbitrator: White face, Golden halo
+            ctx.fillStyle = "#f5f5f5";
+            ctx.fillRect(2, 3, 6, 6);
+            ctx.fillStyle = "#ffd700"; // gold halo
+            ctx.fillRect(1, 1, 8, 1);
+            ctx.fillRect(1, 1, 1, 2);
+            ctx.fillRect(8, 1, 1, 2);
+        } else {
+            ctx.fillStyle = "#777";
+            ctx.fillRect(0, 0, 10, 10);
+        }
+        
+        ctx.restore();
+    });
+
+    if (presences.length > 10) {
+        ctx.fillStyle = "white";
+        ctx.font = "8px 'Press Start 2P', cursive";
+        ctx.textAlign = "right";
+        ctx.fillText("and many more", canvas.width - margin, canvas.height - margin - faceSize - 5);
+    }
+}
+
 function gameLoop(timestamp) {
     ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to identity
     if (gameState.phase === 'SHADOW') return; // STOP the loop during shadowy encounter
@@ -4589,6 +4663,8 @@ function gameLoop(timestamp) {
     });
     gameState.floatingTexts = gameState.floatingTexts.filter(ft => ft.life > 0);
 
+    drawPresenceIndicator(ctx);
+
     requestAnimationFrame(gameLoop);
 }
 
@@ -4640,6 +4716,11 @@ function selectCharacter(id) {
     gameState.phase = 'SPAWN';
     gameState.lastTime = performance.now();
     startBGM(gameState.round);
+    
+    // Global presence update
+    if (typeof setPlayerPresence === 'function') {
+        setPlayerPresence(id);
+    }
 }
 function showVendingScreen() {
     // Save state
