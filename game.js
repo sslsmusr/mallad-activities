@@ -3526,7 +3526,19 @@ function drawPresenceIndicator(ctx, dt) {
                 s.x += (dx / dist) * moveDist;
                 s.walkCycle += dt * 10;
             }
-        } else {
+        } else if (s.mode === 'WAIT') {
+            s.timer -= dt;
+            if (s.timer <= 0) {
+                // 30% chance to AIM before walking
+                if (Math.random() < 0.3) {
+                    s.mode = 'AIM';
+                    s.timer = 2; // Aim for 2 seconds
+                } else {
+                    s.mode = 'WALK';
+                    s.targetX = Math.random() * (areaSize - headSize);
+                }
+            }
+        } else if (s.mode === 'AIM') {
             s.timer -= dt;
             if (s.timer <= 0) {
                 s.mode = 'WALK';
@@ -3576,27 +3588,41 @@ function drawPresenceIndicator(ctx, dt) {
         ctx.stroke();
 
         // Arms
-        const armSwing = s.mode === 'WALK' ? Math.sin(s.walkCycle + Math.PI) : 0.2;
-        const armSwingOpp = s.mode === 'WALK' ? Math.sin(s.walkCycle) : 0.2;
+        let lArmX, lArmY, rArmX, rArmY;
+        if (s.mode === 'WALK') {
+            lArmX = Math.sin(s.walkCycle + Math.PI) * walkAmp;
+            lArmY = torsoY + 15;
+            rArmX = Math.sin(s.walkCycle) * walkAmp;
+            rArmY = torsoY + 15;
+        } else if (s.mode === 'AIM') {
+            lArmX = -2;
+            lArmY = torsoY + 10;
+            rArmX = 10;
+            rArmY = torsoY - 8; // Pointing skyward
+        } else { // WAIT
+            lArmX = 2;
+            lArmY = torsoY + 15;
+            rArmX = -2;
+            rArmY = torsoY + 15;
+        }
 
         // Left Arm
         ctx.beginPath();
         ctx.moveTo(0, torsoY + 5);
-        ctx.lineTo(armSwing * walkAmp, torsoY + 15);
+        ctx.lineTo(lArmX, lArmY);
         ctx.stroke();
 
         // Right Arm
         ctx.beginPath();
         ctx.moveTo(0, torsoY + 5);
-        const armX = armSwingOpp * walkAmp;
-        const armY = torsoY + 15;
-        ctx.lineTo(armX, armY);
+        ctx.lineTo(rArmX, rArmY);
         ctx.stroke();
 
         // Draw Gun
         ctx.save();
-        ctx.translate(armX, armY);
-        ctx.rotate(armSwingOpp * 0.2); // Slight rotation with swing
+        ctx.translate(rArmX, rArmY);
+        const gunRot = s.mode === 'AIM' ? -Math.PI / 3 : (s.mode === 'WALK' ? Math.sin(s.walkCycle) * 0.2 : 0);
+        ctx.rotate(gunRot);
         ctx.lineWidth = 1;
         
         if (s.characterId === 1) { // Urban Stalker: Shotgun
@@ -4124,13 +4150,11 @@ function gameLoop(timestamp) {
             ctx.fillStyle = "white"; // Force white color for all chars
             for (let i = 0; i < notifyText.length; i++) {
                 const char = notifyText[i];
-                if (pixelFont[char]) {
-                    const grid = pixelFont[char];
-                    for (let row = 0; row < 6; row++) {
-                        for (let col = 0; col < 4; col++) {
-                            if (grid[row] & (1 << (3 - col))) {
-                                ctx.fillRect(curX + col * pSize, curY + row * pSize, pSize, pSize);
-                            }
+                const pattern = pixelFont[char] || pixelFont[' '];
+                for (let row = 0; row < 5; row++) {
+                    for (let col = 0; col < 3; col++) {
+                        if (pattern[row][col] === '#') {
+                            ctx.fillRect(curX + col * pSize, curY + row * pSize, pSize, pSize);
                         }
                     }
                 }
