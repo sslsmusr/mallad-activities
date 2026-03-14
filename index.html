@@ -52,8 +52,23 @@
                         <span>NIGHT MODE</span>
                         <button id="toggle-night" class="btn toggle-btn">OFF</button>
                     </div>
+                    <div class="setting-item">
+                        <span>RADIO</span>
+                        <button id="open-radio" class="btn">GO &gt;</button>
+                    </div>
                 </div>
                 <button id="settings-to-menu" class="btn" style="margin-top: 30px;">Back to Menu</button>
+            </div>
+        </div>
+
+        <!-- Radio Selection Screen -->
+        <div id="radio-screen" style="display: none;">
+            <div class="settings-content">
+                <h2 class="settings-title">RADIO</h2>
+                <div id="radio-list" class="settings-options" style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
+                    <!-- Radio stations will be populated here -->
+                </div>
+                <button id="radio-to-settings" class="btn" style="margin-top: 30px;">Back to Settings</button>
             </div>
         </div>
 
@@ -176,6 +191,9 @@
 
         <!-- The Game Canvas (background, ducks, foreground) -->
         <canvas id="game-canvas"></canvas>
+
+        <!-- Radio Notification (Overlay) -->
+        <div id="radio-notification" style="display: none;"></div>
     </div>
 
     <!-- Firebase SDK (v8 Namespace for simplicity) -->

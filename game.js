@@ -243,7 +243,7 @@ fetch(`vulnerable.wav?v=${CACHE_VERSION}`)
     .then(buffer => { vulnerableBuffer = buffer; })
     .catch(e => console.error('Error loading vulnerable sound:', e));
 
-function playSound(buffer, volume = 1.0, loop = false) {
+function playSound(buffer, volume = 0.49, loop = false) {
     if (!gameState.settings.sfx) return null;
     if (!buffer) return null;
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -306,7 +306,7 @@ function startBGM(level) {
     bgmSource.playbackRate.value = 1.0 + (level - 1) * 0.1;
 
     const gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0.2; // Reduced by another 30% from 0.28
+    gainNode.gain.value = 0.098; // Reduced by another 30% from 0.14
 
     bgmSource.connect(gainNode);
     gainNode.connect(audioCtx.destination);
@@ -331,6 +331,9 @@ function playQuack(level) {
     let rate = Math.max(0.1, 1.0 - ((level - 1) * 0.15));
     source.playbackRate.value = rate;
 
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = 0.49; // Lowered by a further 30% from 0.7
+
     // Add distortion node if level >= 3
     if (level >= 3) {
         const distortion = audioCtx.createWaveShaper();
@@ -347,11 +350,12 @@ function playQuack(level) {
         distortion.oversample = '4x';
 
         source.connect(distortion);
-        distortion.connect(audioCtx.destination);
+        distortion.connect(gainNode);
     } else {
-        source.connect(audioCtx.destination);
+        source.connect(gainNode);
     }
 
+    gainNode.connect(audioCtx.destination);
     source.start(0);
 }
 
@@ -438,7 +442,8 @@ let gameState = {
         sfx: true,
         music: true,
         flashing: true,
-        nightMode: false
+        nightMode: false,
+        radioStation: null
     },
     boss: null,
     bossProjectiles: [],
@@ -569,6 +574,56 @@ const toggleNightBtn = document.getElementById('toggle-night');
 const settingsToMenuBtn = document.getElementById('settings-to-menu');
 const almanachToMenu = document.getElementById('almanach-to-menu');
 const almanachToIndex = document.getElementById('almanach-to-index');
+const radioScreen = document.getElementById('radio-screen');
+const radioList = document.getElementById('radio-list');
+const openRadioBtn = document.getElementById('open-radio');
+const radioToSettingsBtn = document.getElementById('radio-to-settings');
+let radioStream = null;
+
+let RADIO_STATIONS = [];
+
+    async function fetchStations() {
+        try {
+            const response = await fetch('radios.json');
+            RADIO_STATIONS = await response.json();
+            console.log("Radio stations loaded from radios.json");
+            
+            // Check for saved radio station and attempt autoplay
+            if (gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled') {
+                tryAutoplayRadio();
+            }
+        } catch (e) {
+            console.error("Failed to load radio stations:", e);
+        }
+    }
+    fetchStations();
+
+    function tryAutoplayRadio() {
+        const station = RADIO_STATIONS.find(s => s.name === gameState.settings.radioStation);
+        if (station) {
+            // Browsers block autoplay until interaction.
+            // We'll try immediately, then fall back to a one-time interaction listener.
+            const playAttempt = () => {
+                if (radioStream) return; // Already playing
+                playRadio(station.url);
+                // If it successfully starts, we can stop listening
+                if (radioStream && !radioStream.paused) {
+                    window.removeEventListener('click', playAttempt);
+                    window.removeEventListener('pointerdown', playAttempt);
+                    window.removeEventListener('keydown', playAttempt);
+                    showNowPlaying(station.name);
+                }
+            };
+
+            // Attempt 1: Immediate (might fail)
+            playAttempt();
+
+            // Attempt 2: On first interaction
+            window.addEventListener('click', playAttempt, { once: true });
+            window.addEventListener('pointerdown', playAttempt, { once: true });
+            window.addEventListener('keydown', playAttempt, { once: true });
+        }
+    }
 const introCanvas = document.getElementById('intro-canvas');
 const introCtx = introCanvas ? introCanvas.getContext('2d') : null;
 if (introCanvas) {
@@ -1265,6 +1320,7 @@ class BigHeadBoss {
         
         // Global stats update
         if (typeof incrementGlobalBossKills === 'function') {
+            window.localBossKillHandled = true; // Mark locally so we don't notify ourselves
             incrementGlobalBossKills();
         }
 
@@ -2404,8 +2460,11 @@ class Projectile {
         }
 
         if (this.hitSun) {
-            let sunX = 80;
-            let sunY = 80;
+            let isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
+            let bopY = isRadioActive ? Math.sin(performance.now() / 150) * 4 : 0;
+            let sunX = 40;
+            let sunY = 40 + bopY;
+            let sunRadius = 20;
 
             // Solar blast visual
             this.particles = [];
@@ -2414,7 +2473,7 @@ class Projectile {
                     x: sunX, y: sunY,
                     vx: (Math.random() - 0.5) * 600,
                     vy: (Math.random() - 0.5) * 600,
-                    size: 4 + Math.random() * 8,
+                    size: 2 + Math.random() * 4, // Scaled down particles
                     life: 0.6 + Math.random() * 0.4,
                     color: ['#ffeb3b', '#ff9800', '#f44336'][Math.floor(Math.random() * 3)]
                 });
@@ -2440,7 +2499,7 @@ class Projectile {
                 let dx = (duck.x + duck.width / 2) - sunX;
                 let dy = (duck.y + duck.height / 2) - sunY;
                 let dist = Math.hypot(dx, dy);
-                if (!duck.isDead && dist <= 40) {
+                if (!duck.isDead && dist <= sunRadius) {
                     duck.die(gameState.character);
                     addScore(500, duck.x + duck.width / 2, duck.y);
                     gameState.killCount++;
@@ -2850,7 +2909,9 @@ function handleShoot(event) {
         let hitSun = false;
 
         let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
-        if (currentLevel >= 4 && Math.abs(currentX - 80) <= 60 && Math.abs(currentY - 80) <= 60) {
+        let isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
+        let bopY = isRadioActive ? Math.sin(performance.now() / 150) * 4 : 0;
+        if (currentLevel >= 4 && Math.abs(currentX - 40) <= 30 && Math.abs(currentY - (40 + bopY)) <= 30) {
             hitSun = true;
         }
 
@@ -3682,12 +3743,22 @@ function gameLoop(timestamp) {
 
     let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
 
-    // Sky blue, darkens based on level
-    let skyL = 68; // 68% lightness
-    if (gameState.round >= 60) skyL -= 20; // Darken by total 20%
-    else if (gameState.round >= 30) skyL -= 10; // Darken by 10%
-    ctx.fillStyle = `hsl(207, 90%, ${skyL}%)`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Retro 8-bit Banded Sky (Posterized transitions)
+    let topL = 68;
+    let botL = 85; 
+    if (gameState.round >= 60) { topL -= 25; botL -= 20; }
+    else if (gameState.round >= 30) { topL -= 12; botL -= 10; }
+
+    const numBands = 6;
+    const bandHeight = (canvas.height * 0.7) / numBands;
+    for (let i = 0; i < numBands; i++) {
+        let t = i / (numBands - 1);
+        let currentL = topL + (botL - topL) * t;
+        ctx.fillStyle = `hsl(207, 90%, ${currentL}%)`;
+        ctx.fillRect(0, i * bandHeight, canvas.width, bandHeight + 1);
+    }
+    // Fill the rest (grass area underneath)
+    ctx.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3);
 
     // Apply Screen Shake for the game world
     let isShaking = gameState.shakeTimer > 0;
@@ -3754,9 +3825,17 @@ function gameLoop(timestamp) {
 
     // Draw Sun at Level >= 4
     if (currentLevel >= 4) {
-        let sunX = 80;
-        let sunY = 80;
-        let sunRadius = 40;
+        let isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
+        
+        // Bopping animation if radio is active
+        let bopY = 0;
+        if (isRadioActive) {
+            bopY = Math.sin(performance.now() / 150) * 4;
+        }
+
+        let sunX = 40;
+        let sunY = 40 + bopY;
+        let sunRadius = 20;
 
         // Redness: starts at 0, increases 5% per round
         let redPercent = Math.min(100, (gameState.round - 1) * 5);
@@ -3764,7 +3843,7 @@ function gameLoop(timestamp) {
         let b = Math.floor(59 * (1 - redPercent / 100));
         ctx.fillStyle = `rgb(255, ${g}, ${b})`;
 
-        let pSize = 4;
+        let pSize = 2; // Smaller pixel size for scaled sun
         for (let y = -sunRadius; y <= sunRadius; y += pSize) {
             for (let x = -sunRadius; x <= sunRadius; x += pSize) {
                 if (x * x + y * y <= sunRadius * sunRadius) {
@@ -3773,92 +3852,108 @@ function gameLoop(timestamp) {
             }
         }
 
-        // Aviator sunglasses
+        // Aviator sunglasses (scaled down)
         ctx.fillStyle = "black";
-        ctx.fillRect(sunX - 28, sunY - 16, 24, 16); // Left lens
+        ctx.fillRect(sunX - 14, sunY - 8, 12, 8); // Left lens
         
         if (gameState.isSunWinking) {
             // Closed right eye (matching sun color base)
             ctx.fillStyle = `rgb(255, ${g}, ${b})`;
-            ctx.fillRect(sunX + 4, sunY - 16, 24, 16);
+            ctx.fillRect(sunX + 2, sunY - 8, 12, 8);
             ctx.fillStyle = "black";
-            ctx.fillRect(sunX + 4, sunY - 4, 24, 4); // happy wink line
+            ctx.fillRect(sunX + 2, sunY - 2, 12, 2); // happy wink line
         } else {
-            ctx.fillRect(sunX + 4, sunY - 16, 24, 16);  // Normal Right lens
+            ctx.fillRect(sunX + 2, sunY - 8, 12, 8);  // Normal Right lens
         }
 
-        ctx.fillRect(sunX - 4, sunY - 12, 8, 4);    // Bridge
-        ctx.fillRect(sunX - 40, sunY - 12, 12, 4);   // Left arm
-        ctx.fillRect(sunX + 28, sunY - 12, 12, 4);   // Right arm
+        ctx.fillRect(sunX - 2, sunY - 6, 4, 2);    // Bridge
+        ctx.fillRect(sunX - 20, sunY - 6, 6, 2);   // Left arm
+        ctx.fillRect(sunX + 14, sunY - 6, 6, 2);   // Right arm
 
         // Lens cutouts to round bottoms
         ctx.fillStyle = `rgb(255, ${g}, ${b})`;
-        ctx.fillRect(sunX - 28, sunY, 4, 4);
-        ctx.fillRect(sunX - 8, sunY, 4, 4);
+        ctx.fillRect(sunX - 14, sunY, 2, 2);
+        ctx.fillRect(sunX - 4, sunY, 2, 2);
         if (!gameState.isSunWinking) {
-            ctx.fillRect(sunX + 4, sunY, 4, 4);
-            ctx.fillRect(sunX + 24, sunY, 4, 4);
+            ctx.fillRect(sunX + 2, sunY, 2, 2);
+            ctx.fillRect(sunX + 12, sunY, 2, 2);
         }
 
         // Lens reflection
         ctx.fillStyle = "white";
-        ctx.fillRect(sunX - 20, sunY - 12, 4, 4);
+        ctx.fillRect(sunX - 10, sunY - 6, 2, 2);
         if (!gameState.isSunWinking) {
-            ctx.fillRect(sunX + 12, sunY - 12, 4, 4);
+            ctx.fillRect(sunX + 6, sunY - 6, 2, 2);
         }
 
-        // Mouth
+        // Mouth (scaled down)
         if (gameState.perfectRounds >= 4) {
             // Huge happy smile! (Audi Acquired)
             ctx.fillStyle = "black";
-            ctx.fillRect(sunX - 20, sunY + 12, 40, 24); // Big mouth backing
+            ctx.fillRect(sunX - 10, sunY + 6, 20, 12); // Big mouth backing
             ctx.fillStyle = "white"; // Big shiny teeth
-            ctx.fillRect(sunX - 16, sunY + 16, 32, 8);
+            ctx.fillRect(sunX - 8, sunY + 8, 16, 4);
             ctx.fillStyle = "#e57373"; // Big tongue
-            ctx.fillRect(sunX - 12, sunY + 28, 24, 8);
+            ctx.fillRect(sunX - 6, sunY + 14, 12, 4);
 
             // Flushed Cheeks
             ctx.fillStyle = `rgba(200, 40, 40, 0.6)`;
-            ctx.fillRect(sunX - 32, sunY + 12, 12, 12);
-            ctx.fillRect(sunX + 20, sunY + 12, 12, 12);
+            ctx.fillRect(sunX - 16, sunY + 6, 6, 6);
+            ctx.fillRect(sunX + 10, sunY + 6, 6, 6);
         } else {
             // Mouth (open expression from image)
             ctx.fillStyle = "black";
-            ctx.fillRect(sunX - 12, sunY + 16, 24, 8);
+            ctx.fillRect(sunX - 6, sunY + 8, 12, 4);
             ctx.fillStyle = "#e57373"; // Inner mouth
-            ctx.fillRect(sunX - 8, sunY + 20, 16, 4);
+            ctx.fillRect(sunX - 4, sunY + 10, 8, 2);
         }
 
-        // Draw Audi Rings (4 Perfect Rounds) directly below the sun
+        // Headphones if radio active
+        if (isRadioActive) {
+            ctx.fillStyle = "#333"; // Dark grey headphones
+            // Left cup
+            ctx.fillRect(sunX - sunRadius - 4, sunY - 8, 6, 16);
+            // Right cup
+            ctx.fillRect(sunX + sunRadius - 2, sunY - 8, 6, 16);
+            // Headband
+            ctx.beginPath();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = "#333";
+            ctx.arc(sunX, sunY, sunRadius + 2, Math.PI, 0);
+            ctx.stroke();
+        }
+
+        // Draw Audi Rings (4 Perfect Rounds) directly below the sun - Scaled
         let numRings = Math.min(4, gameState.perfectRounds);
         if (numRings > 0) {
             ctx.strokeStyle = "#e0e0e0"; // Silver / Platinum color
-            ctx.lineWidth = 4;
-            let startRingsX = sunX - 30; // Center the 4 rings under sun
+            ctx.lineWidth = 2;
+            let startRingsX = sunX - 15; // Center the 4 rings under sun
             for (let i = 0; i < numRings; i++) {
                 ctx.beginPath();
-                // 20px spacing between ring centers, 12px radius, overlapping like Audi
-                ctx.arc(startRingsX + i * 20, sunY + 65, 12, 0, Math.PI * 2);
+                // 10px spacing between ring centers, 6px radius, overlapping like Audi
+                ctx.arc(startRingsX + i * 10, sunY + 32, 6, 0, Math.PI * 2);
                 ctx.stroke();
             }
         }
 
         // Extra feature: Perfect Round Thumbs Up!
         if (gameState.phase === 'DOG' && gameState.escapedThisRound === 0) {
-            let tX = sunX + 45;
-            let tY = sunY + 5;
+            let tX = sunX + 22;
+            let tY = sunY + 2;
+            let pS = 2;
 
             // Base Hand/Fist color matches the sun's redness
             ctx.fillStyle = `rgb(255, ${g}, ${b})`;
-            ctx.fillRect(tX, tY, pSize * 5, pSize * 4); // fist box
-            ctx.fillRect(tX - pSize, tY - pSize * 4, pSize * 2, pSize * 4); // thumb pointing up
+            ctx.fillRect(tX, tY, pS * 5, pS * 4); // fist box
+            ctx.fillRect(tX - pS, tY - pS * 4, pS * 2, pS * 4); // thumb pointing up
 
             // Hand outline shading for pixel 3D volume
             ctx.fillStyle = "black";
-            ctx.fillRect(tX, tY - pSize, pSize * 3, pSize); // top fist crease
-            ctx.fillRect(tX + pSize, tY, pSize, pSize * 2); // root thumb fold
-            ctx.fillRect(tX + pSize * 5, tY + pSize, pSize, pSize); // finger 1 crease
-            ctx.fillRect(tX + pSize * 5, tY + pSize * 3, pSize, pSize); // finger 2 crease
+            ctx.fillRect(tX, tY - pS, pS * 3, pS); // top fist crease
+            ctx.fillRect(tX + pS, tY, pS, pS * 2); // root thumb fold
+            ctx.fillRect(tX + pS * 5, tY + pS, pS, pS); // finger 1 crease
+            ctx.fillRect(tX + pS * 5, tY + pS * 3, pS, pS); // finger 2 crease
         }
 
         // --- Sun's Coded PDF Notifications ---
@@ -3877,10 +3972,6 @@ function gameLoop(timestamp) {
             const bubbleWidth = totalTextWidth + padding * 2;
             const bubbleHeight = charHeight + padding * 2;
             
-            // Position next to the sun (Top left area)
-            const sunX = 80;
-            const sunY = 80;
-            const sunRadius = 40;
             const bubbleX = sunX + sunRadius + 20;
             const bubbleY = sunY - bubbleHeight / 2;
             
@@ -3888,13 +3979,13 @@ function gameLoop(timestamp) {
             ctx.fillStyle = "rgba(0,0,0,0.5)";
             ctx.fillRect(bubbleX + 6, bubbleY + 6, bubbleWidth, bubbleHeight);
             
-            // Bubble Background (Gray)
-            ctx.fillStyle = "#ccc";
+            // Bubble Background (Dark Gray for contrast)
+            ctx.fillStyle = "#222";
             ctx.fillRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
             
-            // Border
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 4;
+            // Border (Neon highlight)
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 2;
             ctx.strokeRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
             
             // Tail pointing to sun
@@ -3902,22 +3993,22 @@ function gameLoop(timestamp) {
             ctx.moveTo(bubbleX, sunY - 5);
             ctx.lineTo(bubbleX - 15, sunY);
             ctx.lineTo(bubbleX, sunY + 5);
-            ctx.fillStyle = "#ccc";
+            ctx.fillStyle = "#222";
             ctx.fill();
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 4;
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 2;
             ctx.stroke();
             
             // Re-fill connecting point to hide border overlap
             ctx.fillRect(bubbleX - 1, sunY - 10, 5, 20);
 
-            // Draw coded PDF text
+            // Draw coded PDF text (White on dark for maximum contrast)
             let curX = bubbleX + padding;
             let curY = bubbleY + padding;
+            ctx.fillStyle = "white"; // Force white color for all chars
             for (let i = 0; i < notifyText.length; i++) {
                 const char = notifyText[i];
                 if (pixelFont[char]) {
-                    ctx.fillStyle = "black";
                     const grid = pixelFont[char];
                     for (let row = 0; row < 6; row++) {
                         for (let col = 0; col < 4; col++) {
@@ -3959,10 +4050,22 @@ function gameLoop(timestamp) {
         ctx.translate(cx + 20, cy + 10);
         ctx.scale(sizeMult, sizeMult);
 
-        // Simple 8-bit cloud shape
-        ctx.fillRect(-20, -10, 40, 20);
-        ctx.fillRect(-30, 0, 60, 10);
+        // Banded 8-bit cloud shading
+        let colors = [];
+        if (currentLevel === 1) colors = ['#ffffff', '#f0f0f0', '#e0e0e0'];
+        else if (currentLevel === 2) colors = ['#d3d3d3', '#c0c0c0', '#b0b0b0'];
+        else colors = ['#9e9e9e', '#888888', '#707070'];
+
+        // Top band
+        ctx.fillStyle = colors[0];
         ctx.fillRect(-10, -20, 20, 10);
+        // Middle band
+        ctx.fillStyle = colors[1];
+        ctx.fillRect(-20, -10, 40, 10);
+        // Bottom band
+        ctx.fillStyle = colors[2];
+        ctx.fillRect(-30, 0, 60, 10);
+        ctx.fillRect(-20, 0, 40, 10); // overlap for shape consistency
 
         ctx.restore();
     }
@@ -3975,9 +4078,19 @@ function gameLoop(timestamp) {
             ctx.translate(pc.x, pc.y);
             let s = pc.size / 60; 
             ctx.scale(s, s);
-            ctx.fillRect(-20, -10, 40, 20);
-            ctx.fillRect(-30, 0, 60, 10);
+            // Banded 8-bit cloud shading for permanent ones
+            let colors = [];
+            if (currentLevel === 1) colors = ['#ffffff', '#f0f0f0', '#e0e0e0'];
+            else if (currentLevel === 2) colors = ['#d3d3d3', '#c0c0c0', '#b0b0b0'];
+            else colors = ['#9e9e9e', '#888888', '#707070'];
+
+            ctx.fillStyle = colors[0];
             ctx.fillRect(-10, -20, 20, 10);
+            ctx.fillStyle = colors[1];
+            ctx.fillRect(-20, -10, 40, 10);
+            ctx.fillStyle = colors[2];
+            ctx.fillRect(-30, 0, 60, 10);
+            ctx.fillRect(-20, 0, 40, 10);
             ctx.restore();
         });
     }
@@ -5607,6 +5720,21 @@ function drawShadowyMonk(ctx, frame, timestamp, w, h, noClear) {
         ctx.fillRect(-1.5 * dSize, 1 * dSize - (mouthStep * 4), 3 * dSize, 1.5 * dSize);
     }
     
+    // Headphones if radio active
+    if (gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled') {
+        ctx.fillStyle = "#333";
+        // Left cup
+        ctx.fillRect(-5 * dSize, -5 * dSize, 1.5 * dSize, 4 * dSize);
+        // Right cup
+        ctx.fillRect(3.5 * dSize, -5 * dSize, 1.5 * dSize, 4 * dSize);
+        // Headband
+        ctx.beginPath();
+        ctx.lineWidth = 1.5 * dSize;
+        ctx.strokeStyle = "#333";
+        ctx.arc(0, -5 * dSize, 4.5 * dSize, Math.PI, 0);
+        ctx.stroke();
+    }
+    
     ctx.restore();
 }
 
@@ -6171,6 +6299,10 @@ function showAlmanachDetail(item) {
 
     toggleMusicBtn.onclick = () => {
         gameState.settings.music = !gameState.settings.music;
+        if (gameState.settings.music) {
+            gameState.settings.radioStation = null;
+            stopRadio();
+        }
         updateSettingsUI();
         saveSettings();
         // Feedback: stop or start music immediately
@@ -6182,6 +6314,109 @@ function showAlmanachDetail(item) {
         } else {
             startBGM(gameState.round);
         }
+    };
+
+    function populateRadioList() {
+        radioList.innerHTML = '';
+        
+        // Add "Disabled" option
+        const disabledItem = document.createElement('div');
+        disabledItem.className = 'radio-item';
+        disabledItem.innerHTML = `
+            <div class="radio-info">
+                <span class="radio-name">DISABLED</span>
+                <span class="radio-genre">No external stream</span>
+            </div>
+            <button class="btn radio-select-btn">${!gameState.settings.radioStation ? 'SELECTED' : 'SELECT'}</button>
+        `;
+        disabledItem.onclick = () => selectRadio(null);
+        radioList.appendChild(disabledItem);
+
+        RADIO_STATIONS.forEach(station => {
+            const item = document.createElement('div');
+            item.className = 'radio-item';
+            const isSelected = gameState.settings.radioStation === station.name;
+            item.innerHTML = `
+                <div class="radio-info">
+                    <span class="radio-name">${station.name}</span>
+                    <span class="radio-genre">${station.genre}</span>
+                </div>
+                <button class="btn radio-select-btn">${isSelected ? 'SELECTED' : 'SELECT'}</button>
+            `;
+            item.onclick = () => selectRadio(station);
+            radioList.appendChild(item);
+        });
+    }
+
+    function selectRadio(station) {
+        if (station) {
+            gameState.settings.radioStation = station.name;
+            gameState.settings.music = false;
+            if (bgmSource) {
+                try { bgmSource.stop(); bgmSource.disconnect(); } catch(e){}
+                bgmSource = null;
+            }
+            playRadio(station.url);
+            showNowPlaying(station.name);
+        } else {
+            gameState.settings.radioStation = null;
+            stopRadio();
+        }
+        updateSettingsUI();
+        populateRadioList();
+        saveSettings();
+    }
+
+    function showNowPlaying(stationName) {
+        const notification = document.getElementById('radio-notification');
+        if (!notification) return;
+        
+        notification.innerHTML = `Now playing 🎵:<br>${stationName}`;
+        notification.style.display = 'block';
+        notification.className = 'fade-in';
+        
+        // Remove previous timeout if any
+        if (window.radioNotificationTimeout) {
+            clearTimeout(window.radioNotificationTimeout);
+        }
+        
+        window.radioNotificationTimeout = setTimeout(() => {
+            notification.className = 'fade-out';
+            setTimeout(() => {
+                if (notification.className === 'fade-out') {
+                    notification.style.display = 'none';
+                }
+            }, 500);
+        }, 3000);
+    }
+
+    function playRadio(url) {
+        if (radioStream) {
+            radioStream.pause();
+            radioStream = null;
+        }
+        radioStream = new Audio(url);
+        radioStream.volume = 0.7; // Lowered by 30%
+        radioStream.play().catch(e => console.warn("Radio autoplay blocked:", e));
+    }
+
+    function stopRadio() {
+        if (radioStream) {
+            radioStream.pause();
+            radioStream = null;
+        }
+    }
+
+    openRadioBtn.onclick = () => {
+        settingsScreen.style.display = 'none';
+        radioScreen.style.display = 'flex';
+        populateRadioList();
+    };
+
+    radioToSettingsBtn.onclick = () => {
+        radioScreen.style.display = 'none';
+        settingsScreen.style.display = 'flex';
+        updateSettingsUI();
     };
 
     toggleFlashingBtn.onclick = () => {
@@ -6196,6 +6431,51 @@ function showAlmanachDetail(item) {
         applyNightMode();
         saveSettings();
     };
+
+    let scrollCount = 0;
+    let scrollTimeout = null;
+
+    window.addEventListener('wheel', (e) => {
+        if (!gameState.settings.radioStation || gameState.settings.radioStation === 'Disabled') return;
+        
+        // Only allow radio quick-switch during active gameplay phases
+        // and when no full-screen menu overlays (settings, radio, almanach, etc.) are visible
+        const menuVisible = (
+            startScreen.style.display === 'flex' || 
+            settingsScreen.style.display === 'flex' || 
+            radioScreen.style.display === 'flex' || 
+            almanachScreen.style.display === 'flex' ||
+            charSelection.style.display === 'flex' ||
+            vendingScreen.style.display === 'flex' ||
+            shadowyScreen.style.display === 'flex'
+        );
+
+        if (gameState.phase === 'START' || menuVisible) return;
+        
+        scrollCount++;
+        clearTimeout(scrollTimeout);
+        
+        if (scrollCount >= 2) {
+            scrollCount = 0;
+            // Pick a random station that is not the current one
+            const otherStations = RADIO_STATIONS.filter(s => s.name !== gameState.settings.radioStation);
+            if (otherStations.length > 0) {
+                const randomStation = otherStations[Math.floor(Math.random() * otherStations.length)];
+                selectRadio(randomStation);
+                // Also update settings in local state and UI
+                gameState.settings.radioStation = randomStation.name;
+                saveSettings();
+                if (radioScreen.style.display === 'flex') {
+                    populateRadioList();
+                }
+            }
+        } else {
+            scrollTimeout = setTimeout(() => {
+                scrollCount = 0;
+            }, 500); // 500ms window for "double scroll"
+        }
+    });
+
 
     loadSettings();
 
