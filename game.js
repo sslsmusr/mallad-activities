@@ -3458,125 +3458,240 @@ function spawnPermanentClouds(count) {
 }
 
 // Game Loop
+let presenceStates = {}; // Local state for active remote players
 
 function drawPresenceIndicator(ctx, dt) {
     const presences = window.activePresences || [];
-    if (presences.length === 0) return;
+    if (presences.length === 0) {
+        presenceStates = {}; // Clear if no one
+        return;
+    }
 
     const margin = 20;
-    const rectWidth = 200;
-    const rectHeight = 50;
-    const faceSize = 40;
+    const areaSize = 200;
+    const stickHeight = 30;
+    const headSize = 20;
     
-    // Up to 15 faces for a crowded look
-    const facesToDraw = presences.slice(0, 15);
-    
-    // Position rectangle above the HUD (bottom-right)
-    const rectX = canvas.width - rectWidth - margin;
-    const rectY = canvas.height - 80 - margin - rectHeight;
+    // Position area above the HUD (bottom-right)
+    const areaX = canvas.width - areaSize - margin;
+    const areaY = canvas.height - 80 - margin - areaSize;
 
-    facesToDraw.forEach((p, i) => {
-        // Deterministic "random" based on ID for stable positions
+    // Cleanup states for people who left
+    const activeIds = new Set(presences.map(p => p.id));
+    for (let id in presenceStates) {
+        if (!activeIds.has(id)) delete presenceStates[id];
+    }
+
+    presences.slice(0, 15).forEach((p, i) => {
         const id = p.id || String(i);
-        let hash = 0;
-        for (let j = 0; j < id.length; j++) {
-            hash = ((hash << 5) - hash) + id.charCodeAt(j);
-            hash |= 0;
+        if (!presenceStates[id]) {
+            // Initialize new presence state
+            let hash = 0;
+            for (let j = 0; j < id.length; j++) {
+                hash = ((hash << 5) - hash) + id.charCodeAt(j);
+                hash |= 0;
+            }
+            const seed = Math.abs(hash);
+            let hue = seed % 360;
+            // Shift away from Green/Brown (20-160) for contrast with grass
+            if (hue > 20 && hue < 160) {
+                hue = (hue + 140) % 360;
+            }
+            
+            presenceStates[id] = {
+                x: Math.random() * (areaSize - headSize),
+                y: areaSize - stickHeight - headSize - 5, // Fixed Y near bottom
+                targetX: Math.random() * (areaSize - headSize),
+                mode: 'WALK',
+                timer: 0,
+                color: `hsl(${hue}, 80%, 65%)`, // Slightly more vibrant/light
+                characterId: p.characterId,
+                walkCycle: 0
+            };
         }
-        const seed = Math.abs(hash);
-        
-        // Random pos inside 200x50 area
-        const rx = (seed % (rectWidth - faceSize));
-        const ry = ((seed >> 5) % (rectHeight - faceSize));
-        
-        const x = rectX + rx;
-        const y = rectY + ry;
-        
-        // Subtle color shifting based on seed
-        const hueShift = (seed % 20) - 10; // -10 to +10
-        const lightShift = (seed % 8) - 4; // -4 to +4
-        
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.imageSmoothingEnabled = false;
 
-        // Rounded Clipping for Face
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(0, 0, 40, 40, 8);
+        const s = presenceStates[id];
+
+        // Update Logic
+        if (s.mode === 'WALK') {
+            const dx = s.targetX - s.x;
+            const dist = Math.abs(dx);
+            const speed = 40; // px/sec
+
+            if (dist < 2) {
+                s.mode = 'WAIT';
+                s.timer = 1 + Math.random() * 3; // Wait 1-4 seconds
+            } else {
+                const moveDist = speed * dt;
+                s.x += (dx / dist) * moveDist;
+                s.walkCycle += dt * 10;
+            }
         } else {
-            ctx.rect(0, 0, 40, 40);
+            s.timer -= dt;
+            if (s.timer <= 0) {
+                s.mode = 'WALK';
+                s.targetX = Math.random() * (areaSize - headSize);
+            }
         }
-        ctx.clip();
 
-        if (p.characterId === 1) { // Urban Stalker: Beige face, Purple outline
-            // Purple Outline/Hood
-            ctx.fillStyle = `hsl(${270 + hueShift}, 40%, ${30 + lightShift}%)`;
+        // Draw Logic
+        ctx.save();
+        ctx.translate(areaX + s.x, areaY + s.y);
+
+        // Draw Stick Body
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 1;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+
+        const headY = 0;
+        const torsoY = headSize;
+        const hipsY = headSize + 15;
+        const walkAmp = 8;
+        const kneeAmp = 4;
+
+        // Legs
+        const legSwing = s.mode === 'WALK' ? Math.sin(s.walkCycle) : 0;
+        const legSwingOpp = s.mode === 'WALK' ? Math.sin(s.walkCycle + Math.PI) : 0;
+
+        // Left Leg
+        ctx.beginPath();
+        ctx.moveTo(0, hipsY);
+        ctx.lineTo(legSwing * walkAmp, hipsY + 15);
+        ctx.stroke();
+
+        // Right Leg
+        ctx.beginPath();
+        ctx.moveTo(0, hipsY);
+        ctx.lineTo(legSwingOpp * walkAmp, hipsY + 15);
+        ctx.stroke();
+
+        // Torso
+        ctx.beginPath();
+        ctx.moveTo(0, torsoY);
+        ctx.lineTo(0, hipsY);
+        ctx.stroke();
+
+        // Arms
+        const armSwing = s.mode === 'WALK' ? Math.sin(s.walkCycle + Math.PI) : 0.2;
+        const armSwingOpp = s.mode === 'WALK' ? Math.sin(s.walkCycle) : 0.2;
+
+        // Left Arm
+        ctx.beginPath();
+        ctx.moveTo(0, torsoY + 5);
+        ctx.lineTo(armSwing * walkAmp, torsoY + 15);
+        ctx.stroke();
+
+        // Right Arm
+        ctx.beginPath();
+        ctx.moveTo(0, torsoY + 5);
+        const armX = armSwingOpp * walkAmp;
+        const armY = torsoY + 15;
+        ctx.lineTo(armX, armY);
+        ctx.stroke();
+
+        // Draw Gun
+        ctx.save();
+        ctx.translate(armX, armY);
+        ctx.rotate(armSwingOpp * 0.2); // Slight rotation with swing
+        ctx.lineWidth = 1;
+        
+        if (s.characterId === 1) { // Urban Stalker: Shotgun
+            ctx.fillStyle = "#616161"; // Dark Gray
+            ctx.fillRect(0, -2, 12, 4); // Barrel
+            ctx.fillRect(-2, -1, 4, 3); // Receiver
+            ctx.fillStyle = "#3e2723"; // Wood stock
+            ctx.fillRect(-6, -1, 4, 2); 
+        } else if (s.characterId === 2) { // Ascetic: Divine Staff-Gun
+            ctx.fillStyle = "#795548"; // Brown staff
+            ctx.fillRect(-2, -10, 2, 20); // Staff
+            ctx.fillStyle = "#ffd700"; // Gold barrel
+            ctx.fillRect(0, -2, 14, 3);
+            ctx.fillStyle = "#fff"; // Glow tip
+            ctx.fillRect(14, -2, 2, 3);
+        } else if (s.characterId === 3) { // Arbitrator: Law Enforcement Rifle
+            ctx.fillStyle = "#9e9e9e"; // Silver
+            ctx.fillRect(0, -2, 18, 3); // Long barrel
+            ctx.fillRect(-2, -2, 6, 5); // Body
+            ctx.fillRect(-4, -1, 2, 4); // Grip/Stock
+            ctx.fillStyle = "#212121"; // Scope
+            ctx.fillRect(2, -4, 6, 2);
+        }
+        ctx.restore();
+
+        // Head (Pixel Heads - Scaled)
+        ctx.save();
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.translate(-headSize / 2, 0);
+        ctx.scale(headSize / 40, headSize / 40);
+
+        const isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
+        if (isRadioActive) {
+            ctx.fillStyle = "#212121"; // Dark Headphones
+            // Left Cup
+            ctx.fillRect(-4, 10, 6, 20);
+            // Right Cup
+            ctx.fillRect(38, 10, 6, 20);
+            // Band
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = "#212121";
+            ctx.beginPath();
+            ctx.arc(20, 20, 22, Math.PI, 0);
+            ctx.stroke();
+        }
+
+        if (s.characterId === 1) { // Urban Stalker
+            ctx.fillStyle = "#4a148c"; // Purple Hood
             ctx.fillRect(0, 0, 40, 40);
-            // Beige Face
-            ctx.fillStyle = `hsl(${34 + hueShift}, 50%, ${85 + lightShift}%)`;
+            ctx.fillStyle = "#f5f5dc"; // Beige Face
             ctx.fillRect(6, 6, 28, 28);
-            // Purple Mask/Band
-            ctx.fillStyle = `hsl(${270 + hueShift}, 50%, ${40 + lightShift}%)`;
+            ctx.fillStyle = "#6a1b9a"; // Mask
             ctx.fillRect(0, 10, 40, 8);
-            // Glowing Green Eyes
-            ctx.fillStyle = "#4af14e";
-            ctx.shadowBlur = 5;
-            ctx.shadowColor = "#4af14e";
+            ctx.fillStyle = "#4af14e"; // Eyes
             ctx.fillRect(10, 12, 6, 4);
             ctx.fillRect(24, 12, 6, 4);
-        } else if (p.characterId === 2) { // Ascetic: Saffron palette
-            // Saffron Robe
-            ctx.fillStyle = `hsl(${35 + hueShift}, 100%, ${50 + lightShift}%)`;
+        } else if (s.characterId === 2) { // Ascetic
+            ctx.fillStyle = "#fb8c00"; // Saffron
             ctx.fillRect(0, 0, 40, 40);
-            // Tan Face
-            ctx.fillStyle = `hsl(30, 60%, ${80 + lightShift}%)`;
+            ctx.fillStyle = "#d2b48c"; // Tan
             ctx.fillRect(10, 10, 20, 22);
-            // Eyes
-            ctx.fillStyle = "#5d4037";
+            ctx.fillStyle = "#5d4037"; // Eyes
             ctx.fillRect(12, 18, 5, 2);
             ctx.fillRect(23, 18, 5, 2);
-            // Red dot
-            ctx.fillStyle = "#c62828";
+            ctx.fillStyle = "#c62828"; // Red dot
             ctx.fillRect(19, 13, 2, 2);
-        } else if (p.characterId === 3) { // Arbitrator: White/Gold palette
-            // Body Background
-            ctx.fillStyle = `hsl(210, 15%, ${40 + lightShift}%)`;
+        } else if (s.characterId === 3) { // Arbitrator
+            ctx.fillStyle = "#455a64"; // Slate
             ctx.fillRect(0, 0, 40, 40);
-            // White Wig
-            ctx.fillStyle = `hsl(0, 0%, ${98 + lightShift}%)`;
-            ctx.fillRect(6, 6, 28, 30);
-            ctx.fillRect(4, 12, 32, 24);
-            // Face
-            ctx.fillStyle = "#ffccbc";
-            ctx.fillRect(12, 14, 16, 18);
-            // Gold Halo
-            ctx.fillStyle = `hsl(${48 + hueShift}, 100%, ${50 + lightShift}%)`;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = ctx.fillStyle;
-            ctx.beginPath();
-            ctx.arc(20, 10, 15, 0, Math.PI, true);
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = ctx.fillStyle;
-            ctx.stroke();
-            // Serious Eyes
-            ctx.fillStyle = "#111";
-            ctx.fillRect(14, 20, 4, 2);
-            ctx.fillRect(22, 20, 4, 2);
+            ctx.fillStyle = "#ffffff"; // Wig
+            ctx.fillRect(4, 6, 32, 30);
+            ctx.fillStyle = "#ffe0b2"; // Pale face
+            ctx.fillRect(10, 10, 20, 22);
+            ctx.fillStyle = "#1a237e"; // Eyes
+            ctx.fillRect(12, 18, 5, 2);
+            ctx.fillRect(23, 18, 5, 2);
+            ctx.fillStyle = "#ffd700"; // Gold trim
+            ctx.fillRect(4, 28, 32, 4);
         } else {
+            // Default Head
             ctx.fillStyle = "#777";
             ctx.fillRect(0, 0, 40, 40);
         }
-        
+        ctx.restore();
+
         ctx.restore();
     });
 
     if (presences.length > 15) {
         ctx.fillStyle = "white";
-        ctx.shadowBlur = 0;
         ctx.font = "12px 'Press Start 2P', cursive";
         ctx.textAlign = "right";
-        ctx.fillText("and many more", canvas.width - margin, rectY - 15);
+        ctx.fillText("and many more...", canvas.width - margin, areaY + 140);
     }
 
     // Death Notifications (Gray Speech Bubble with Black Pixel-Art Letters)
@@ -3593,8 +3708,9 @@ function drawPresenceIndicator(ctx, dt) {
         const bubbleWidth = totalTextWidth + padding * 2;
         const bubbleHeight = charHeight + padding * 2;
         
-        // Position above the "and many more" or the icons
-        const notifyY = (presences.length > 15) ? rectY - 35 - bubbleHeight : rectY - 15 - bubbleHeight;
+        // Position above the "and many more" (if it exists) or just above heads (Y=145)
+        const figuresHeadY = areaY + 145;
+        const notifyY = (presences.length > 15) ? figuresHeadY - 25 - bubbleHeight : figuresHeadY - 10 - bubbleHeight;
         const notifyX = canvas.width - margin - bubbleWidth;
 
         ctx.save();

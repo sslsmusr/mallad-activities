@@ -1,0 +1,15 @@
+[
+    { "name": "Radio City", "url": "http://play.global.audio/city64", "genre": "Top‑40, pop, hits" },
+    { "name": "Radio Fresh!", "url": "http://193.108.24.21:8000/fresh", "genre": "Contemporary hits, pop" },
+    { "name": "Radio Nova", "url": "http://play.global.audio/nova128", "genre": "Dance, house, electro" },
+    { "name": "Radio Mixx", "url": "https://radio.comnet.bg:12301/radio-mixx.mp3", "genre": "80/90s, BG, News, Hits, Retro" },
+    { "name": "Radio ENERGY", "url": "https://25633.live.streamtheworld.com/RADIO_ENERGYAAC_L.aac", "genre": "Pop Hits, Rap, Rock" },
+    { "name": "Radio 999", "url": "http://62.204.158.5:8081/live", "genre": "BG, Pop Hits, Retro" },
+    { "name": "Radio Melody", "url": "https://pulsar.atlantis.bg:8443/melody", "genre": "Dance, Metal, News, Rap, Rock" },
+    { "name": "Radio Magic FM", "url": "https://nova-radio.neterra.tv/magicfm", "genre": "80/90s, Dance, Pop Hits" },
+    { "name": "Radio Ultra", "url": "http://88.80.96.25:8020/;", "genre": "Pop‑folk, modern folk" },
+    { "name": "Radio Lele Male", "url": "https://play-radio0.jump.bg:7332/stream64", "genre": "Pop‑folk, Balkan, retro folk" },
+    { "name": "Radio Veselina", "url": "https://nova-radio.neterra.tv/veselina", "genre": "Folk, pop, traditional" },
+    { "name": "Radio Veronika", "url": "https://playerservices.streamtheworld.com/api/livestream-redirect/RADIO_VERONIKAAAC_L.aac?dist=DESKTOP", "genre": "Pop‑folk, Balkan / ethnic hits" },
+    { "name": "Radio Vega+", "url": "http://88.80.96.25:8040/;", "genre": "80/90s hits, pop-folk" }
+]
