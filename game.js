@@ -55,7 +55,7 @@ const scoreDisplay = document.getElementById('score-display');
 const ammoDisplay = document.getElementById('ammo-display');
 
 // Cache version for all assets
-const CACHE_VERSION = 56;
+const CACHE_VERSION = 57;
 
 // Load Assets
 const duckImg1 = new Image();
@@ -66,6 +66,24 @@ const dogImg1 = new Image();
 dogImg1.src = `dog1.png?v=${CACHE_VERSION}`;
 const dogImg2 = new Image();
 dogImg2.src = `dog2.png?v=${CACHE_VERSION}`;
+
+// The Unclean One Boss Assets
+const uncleanHeadImg = new Image();
+uncleanHeadImg.src = `unclean_one_head.png?v=${CACHE_VERSION}`;
+const uncleanBodyImg = new Image();
+uncleanBodyImg.src = `unclean_one_body.png?v=${CACHE_VERSION}`;
+const uncleanHandImg = new Image();
+uncleanHandImg.src = `unclean_one_hand.png?v=${CACHE_VERSION}`;
+const poopImg = new Image();
+poopImg.src = `poop.png?v=${CACHE_VERSION}`;
+const poopStainImg = new Image();
+poopStainImg.src = `poop_stain_splat.png?v=${CACHE_VERSION}`;
+
+// Gore Assets
+const uncleanBonesImg = new Image();
+uncleanBonesImg.src = `unclean_one_bones.png?v=${CACHE_VERSION}`;
+const uncleanSpineImg = new Image();
+uncleanSpineImg.src = `unclean_one_spine.png?v=${CACHE_VERSION}`;
 
 // Audio Context setup for sound effects
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -447,6 +465,9 @@ let gameState = {
     },
     boss: null,
     bossProjectiles: [],
+    poopStainTimer: 0,
+    poopStainX: 0,
+    poopStainY: 0,
     victoryTimer: 0,
     fireworks: []
 };
@@ -1519,6 +1540,585 @@ class BigHeadBoss {
     }
 }
 
+class PoopProjectile {
+    constructor(x, y) {
+        this.baseX = x; // Store start position for spiral logic
+        this.baseY = y;
+        this.x = x;
+        this.y = y;
+        this.timer = 0;
+        this.maxTimer = 2.0;
+        this.size = 20;
+        this.maxSize = 120;
+        this.hp = 10; // Poop can be destroyed!
+        this.isDead = false;
+        this.fullyDead = false;
+        this.particles = [];
+        this.angle = 0;
+        this.spiralRate = 4 + Math.random() * 6;
+        this.spiralPhase = Math.random() * Math.PI * 2;
+        this.spiralRadiusMax = 60 + Math.random() * 80;
+    }
+
+    update(dt) {
+        if (this.isDead) return;
+
+        let speedScaling = 1 + Math.sin(this.timer * 6) * 0.4;
+        this.timer += dt * speedScaling;
+
+        let progress = Math.min(1.0, this.timer / this.maxTimer);
+        this.size = 20 + (this.maxSize - 20) * progress;
+        this.angle += dt * 5;
+
+        // Spiral movement
+        let spiralRadius = this.spiralRadiusMax * progress;
+        this.x = this.baseX + Math.cos(this.timer * this.spiralRate + this.spiralPhase) * spiralRadius;
+        this.y = this.baseY + Math.sin(this.timer * this.spiralRate + this.spiralPhase) * spiralRadius;
+
+        // Poop particles
+        if (Math.random() < 0.4) {
+            this.particles.push({
+                x: this.x + (Math.random() - 0.5) * 30,
+                y: this.y + (Math.random() - 0.5) * 30,
+                vx: (Math.random() - 0.5) * 120,
+                vy: 80 + Math.random() * 120,
+                size: 4 + Math.random() * 8,
+                life: 0.4 + Math.random() * 0.6,
+                color: ['#5d4037', '#795548', '#8d6e63'][Math.floor(Math.random() * 3)]
+            });
+        }
+
+        this.particles.forEach(p => {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt;
+        });
+        this.particles = this.particles.filter(p => p.life > 0);
+
+        if (this.timer >= this.maxTimer) {
+            gameState.lives--;
+            gameState.ammo = 12;
+            gameState.redFlashTimer = 0.5;
+            gameState.shakeTimer = 0.5;
+            if (gameState.boss) {
+                gameState.boss.expression = 'SNICKERING';
+                gameState.boss.snickerTimer = 2.0;
+            }
+            gameState.poopStainTimer = 2.5;
+            gameState.poopStainX = (Math.random() - 0.5) * canvas.width * 0.3;
+            gameState.poopStainY = (Math.random() - 0.5) * canvas.height * 0.3;
+            playSound(boomBuffer, 1.0);
+            updateUI();
+            this.isDead = true;
+            this.fullyDead = true;
+
+            if (gameState.lives <= 0 && gameState.phase !== 'GAME_OVER') {
+                triggerGameOver();
+            }
+        }
+    }
+
+    draw(ctx) {
+        this.particles.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.fillRect(p.x, p.y, p.size, p.size);
+        });
+        ctx.globalAlpha = 1.0;
+
+        if (this.isDead) return;
+
+        ctx.save();
+        let jitter = (Math.random() - 0.5) * 4;
+        ctx.translate(this.x + jitter, this.y);
+        ctx.rotate(this.angle);
+        // New spiral asset is centered differently, but drawImage -size/2 is usually safe
+        ctx.drawImage(poopImg, -this.size/2, -this.size/2, this.size, this.size);
+        ctx.restore();
+    }
+}
+
+class UncleanOneBoss {
+    constructor() {
+        this.isBoss = true;
+        this.name = "The Unclean One";
+        this.hp = 150;
+        this.maxHp = 150;
+        this.segments = {
+            hands: { hp: 50, maxHp: 50, alive: true },
+            body: { hp: 50, maxHp: 50, alive: true },
+            head: { hp: 50, maxHp: 50, alive: true }
+        };
+        this.x = canvas.width / 2;
+        this.y = canvas.height + 200;
+        this.baseY = canvas.height + 200;
+        this.width = canvas.width * 0.35;
+        this.height = canvas.height * 0.35;
+        this.isUpsideDown = false;
+        this.isVulnerable = false;
+        this.isDead = false;
+        this.fullyDead = false;
+        this.timer = 0;
+        this.state = 'REPOSITIONING';
+        this.waitTime = 4.0;
+        this.expression = 'ANGRY';
+        this.snickerTimer = 0;
+        this.protectX = 0;
+        this.protectY = 0;
+        this.protectTimer = 0;
+        this.shieldFlash = 0;
+        this.fireTimer = 0;
+        this.handsFlash = 0;
+        this.bodyFlash = 0;
+        this.headFlash = 0;
+        this.painTimer = 0;
+        this.spinePhase = 0;
+        this.flashColor = "#fff"; // default
+        this.rumbleSource = playSound(sirenBuffer, 0.4, true);
+        if (this.rumbleSource) this.rumbleSource.playbackRate.value = 0.2;
+    }
+
+    update(dt) {
+        if (this.isDead) {
+            if (this.particles) {
+                let allDead = true;
+                this.particles.forEach(p => {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.life -= dt;
+                    if (p.life > 0) allDead = false;
+                });
+                if (allDead) this.fullyDead = true;
+            } else {
+                this.fullyDead = true;
+            }
+            return;
+        }
+
+        this.timer += dt;
+        if (this.snickerTimer > 0) {
+            this.snickerTimer -= dt;
+            if (this.snickerTimer <= 0) this.expression = 'ANGRY';
+        }
+        if (this.protectTimer > 0) this.protectTimer -= dt;
+        if (this.shieldFlash > 0) this.shieldFlash -= dt;
+        if (this.handsFlash > 0) this.handsFlash -= dt;
+        if (this.bodyFlash > 0) this.bodyFlash -= dt;
+        if (this.headFlash > 0) this.headFlash -= dt;
+        if (this.painTimer > 0) this.painTimer -= dt;
+        this.spinePhase += dt * 5;
+
+        if (this.state === 'REPOSITIONING') {
+            this.isUpsideDown = Math.random() < 0.3;
+            let margin = this.width * 1.2;
+            this.x = margin + Math.random() * (canvas.width - 2 * margin);
+            
+            if (this.isUpsideDown) {
+                this.baseY = -this.height;
+                this.y = -this.height;
+                this.targetY = 50;
+            } else {
+                let grassLevel = canvas.height - (canvas.height * 0.12);
+                this.baseY = grassLevel + this.height;
+                this.y = grassLevel + this.height;
+                // Lift fully to expose torso and arms clearly
+                this.targetY = grassLevel - this.height * 1.1; 
+            }
+            
+            this.state = 'POPPING_UP';
+            this.timer = 0;
+            this.isVulnerable = true;
+        } else if (this.state === 'POPPING_UP') {
+            let speed = 400;
+            if (this.isUpsideDown) {
+                this.y += speed * dt;
+                if (this.y >= this.targetY) {
+                    this.y = this.targetY;
+                    this.state = 'WAITING';
+                    this.timer = 0;
+                }
+            } else {
+                this.y -= speed * dt;
+                if (this.y <= this.targetY) {
+                    this.y = this.targetY;
+                    this.state = 'WAITING';
+                    this.timer = 0;
+                }
+            }
+        } else if (this.state === 'WAITING') {
+            this.fireTimer += dt;
+            if (this.fireTimer > 1.2) {
+                this.fireTimer = 0;
+                let spawnX = this.x + (Math.random() - 0.5) * 100;
+                let spawnY = this.y + (this.isUpsideDown ? this.height : 0) + (Math.random() - 0.5) * 50;
+                gameState.bossProjectiles.push(new PoopProjectile(spawnX, spawnY));
+                playSound(quackBuffer, 0.8);
+            }
+            if (this.timer >= this.waitTime) {
+                this.state = 'POPPING_DOWN';
+                this.timer = 0;
+            }
+        } else if (this.state === 'POPPING_DOWN') {
+            let speed = 400;
+            if (this.isUpsideDown) {
+                this.y -= speed * dt;
+                if (this.y <= this.baseY) {
+                    this.y = this.baseY;
+                    this.state = 'REPOSITIONING';
+                    this.isVulnerable = false;
+                }
+            } else {
+                this.y += speed * dt;
+                if (this.y >= this.baseY) {
+                    this.y = this.baseY;
+                    this.state = 'REPOSITIONING';
+                    this.isVulnerable = false;
+                }
+            }
+        }
+
+        if (this.hp <= 0 && !this.isDead) {
+            this.die();
+        }
+    }
+
+    die() {
+        this.isDead = true;
+        if (this.rumbleSource) {
+            try { this.rumbleSource.stop(); } catch(e){}
+        }
+        playSound(boomBuffer, 1.0);
+        this.particles = [];
+        for (let i = 0; i < 150; i++) {
+            this.particles.push({
+                x: this.x + (Math.random() - 0.5) * this.width,
+                y: this.y + (Math.random() - 0.5) * this.height,
+                vx: (Math.random() - 0.5) * 1000,
+                vy: (Math.random() - 0.5) * 1000,
+                size: 8 + Math.random() * 20,
+                life: 1.5 + Math.random() * 1.5,
+                color: ['#4caf50', '#8d6e63', '#5d4037', '#2e7d32'][Math.floor(Math.random() * 4)]
+            });
+        }
+        gameState.victoryTimer = 3.0;
+        gameState.shakeTimer = 3.0;
+        gameState.score += 30000;
+        
+        gameState.floatingTexts.push({
+            x: this.x,
+            y: this.y,
+            text: "+30000",
+            timer: 3.0,
+            life: 3.0,
+            color: "#FFD700",
+            size: 60
+        });
+        updateUI();
+    }
+
+
+    drawShield(ctx, x, y, size) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = "#aaa";
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(size, 0);
+        ctx.lineTo(size, size * 0.7);
+        ctx.lineTo(size / 2, size);
+        ctx.lineTo(0, size * 0.7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawSegmentBar(ctx, x, y, w, h, data, vulnerable, pulse) {
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+
+        if (!data.alive) {
+            ctx.fillStyle = "rgba(50, 50, 50, 0.5)";
+            ctx.fillRect(x, y, w, h);
+            ctx.restore();
+            return;
+        }
+
+        if (vulnerable) {
+            let hpRatio = data.hp / 50;
+            let hue = hpRatio * 120;
+            let alpha = 0.7 + pulse * 0.3;
+            ctx.fillStyle = `hsla(${hue}, 80%, 50%, ${alpha})`;
+            ctx.fillRect(x, y, w * hpRatio, h);
+            ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+        } else {
+            ctx.fillStyle = "#444";
+            ctx.fillRect(x, y, w, h);
+            this.drawShield(ctx, x + w - 10, y + 1.5, 7);
+        }
+        ctx.restore();
+    }
+
+    drawShield(ctx, x, y, r) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = "#00ffff";
+        ctx.beginPath();
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r, -r*0.5);
+        ctx.lineTo(r, r*0.5);
+        ctx.lineTo(0, r);
+        ctx.lineTo(-r, r*0.5);
+        ctx.lineTo(-r, -r*0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    drawGlow(ctx, x, y, w, h) {
+        ctx.save();
+        let pulse = (Math.sin(performance.now() / 200) + 1) / 2;
+        ctx.shadowBlur = 15 + pulse * 15;
+        ctx.shadowColor = `rgba(255, 0, 0, ${0.4 + pulse * 0.6})`;
+        ctx.globalAlpha = 0.3 + pulse * 0.4;
+        ctx.fillStyle = "rgba(255, 50, 50, 0.5)";
+        ctx.fillRect(x + w*0.1, y + h*0.1, w*0.8, h*0.8);
+        ctx.restore();
+    }
+
+    draw(ctx) {
+        if (this.isDead) {
+            if (this.particles) {
+                this.particles.forEach(p => {
+                    if (p.life > 0) {
+                        ctx.fillStyle = p.color;
+                        ctx.globalAlpha = Math.max(0, p.life);
+                        ctx.fillRect(p.x, p.y, p.size, p.size);
+                    }
+                });
+                ctx.globalAlpha = 1.0;
+            }
+            return;
+        }
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        if (this.isUpsideDown) {
+            ctx.scale(1, -1);
+            ctx.translate(0, -this.height);
+        }
+
+        let w = this.width;
+        let h = this.height;
+        let pulse = (Math.sin(performance.now() / 150) + 1) / 2;
+
+        // Inverting the context for upside-down mode flips the Y axis
+        // We need to ensure segments are still ordered logically (Head above Body)
+        let bodyY = h/4;
+        let headY = -h/4;
+        let handY = h/4;
+
+        if (this.isUpsideDown) {
+            ctx.scale(1, -1);
+            ctx.translate(0, -this.height);
+        }
+
+        // Apply global paleness/disease filter
+        const palenessFilter = 'brightness(1.5) saturate(0.6)';
+
+        if (this.segments.body.alive) {
+            ctx.save();
+            if (this.bodyFlash > 0) {
+                ctx.filter = this.flashColor === 'red' ? 'sepia(1) saturate(10) hue-rotate(-50deg) brightness(1)' : 'grayscale(1) brightness(1.5)';
+            } else {
+                ctx.filter = palenessFilter;
+            }
+            // Torso at bottom
+            if (!this.segments.hands.alive && this.segments.body.alive) {
+                this.drawGlow(ctx, -w/2, bodyY, w, h);
+            }
+            if (uncleanBodyImg.complete && uncleanBodyImg.naturalWidth !== 0) {
+                ctx.drawImage(uncleanBodyImg, -w/2, bodyY, w, h);
+            }
+            ctx.restore();
+        }
+
+        // Gore: Bone Stumps if hands died
+        if (!this.segments.hands.alive && this.segments.body.alive) {
+            ctx.save();
+            ctx.filter = palenessFilter;
+            let stumpW = w * 0.4;
+            let stumpH = h * 0.4;
+            // Left shoulder stump
+            if (uncleanBonesImg.complete && uncleanBonesImg.naturalWidth !== 0) {
+                ctx.drawImage(uncleanBonesImg, -w/2 - 10, bodyY + 10, stumpW, stumpH);
+            }
+            // Right shoulder stump
+            ctx.save();
+            ctx.scale(-1, 1);
+            if (uncleanBonesImg.complete && uncleanBonesImg.naturalWidth !== 0) {
+                ctx.drawImage(uncleanBonesImg, -w/2 - 10, bodyY + 10, stumpW, stumpH);
+            }
+            ctx.restore();
+            ctx.restore();
+        }
+        if (this.segments.head.alive) {
+            ctx.save();
+            // Pain shaking
+            if (this.painTimer > 0) {
+                ctx.translate((Math.random()-0.5)*10, (Math.random()-0.5)*10);
+            }
+
+            if (this.headFlash > 0) {
+                ctx.filter = this.flashColor === 'red' ? 'sepia(1) saturate(10) hue-rotate(-50deg) brightness(1)' : 'grayscale(1) brightness(1.5)';
+            } else {
+                ctx.filter = palenessFilter;
+            }
+            // Head centered above torso - shrunk by 30%
+            let headW = w * 0.7;
+            let headH = h * 0.7;
+
+            // Gore: Dangling Spine if body died
+            if (!this.segments.body.alive) {
+                ctx.save();
+                let spineW = headW * 0.4;
+                let spineH = headH * 1.5;
+                // Animate spine dangling
+                ctx.translate(0, headH/2);
+                ctx.rotate(Math.sin(this.spinePhase) * 0.2);
+                if (uncleanSpineImg.complete && uncleanSpineImg.naturalWidth !== 0) {
+                    ctx.drawImage(uncleanSpineImg, -spineW/2, 0, spineW, spineH);
+                }
+                ctx.restore();
+            }
+
+            if (!this.segments.hands.alive && !this.segments.body.alive) {
+                this.drawGlow(ctx, -headW/2, headY, headW, headH);
+                
+                // Visible Hitbox Indicator for Head
+                ctx.strokeStyle = "rgba(255, 0, 0, " + (0.3 + pulse * 0.4) + ")";
+                ctx.setLineDash([5, 5]);
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-headW/2, headY, headW, headH);
+                ctx.setLineDash([]);
+            }
+            if (uncleanHeadImg.complete && uncleanHeadImg.naturalWidth !== 0) {
+                ctx.drawImage(uncleanHeadImg, -headW/2, headY, headW, headH);
+            }
+            ctx.restore();
+        }
+        if (this.segments.hands.alive) {
+            ctx.save();
+            if (this.handsFlash > 0) {
+                ctx.filter = this.flashColor === 'red' ? 'sepia(1) saturate(10) hue-rotate(-50deg) brightness(1)' : 'grayscale(1) brightness(1.5)';
+            } else {
+                ctx.filter = palenessFilter;
+            }
+            let armW = w/1.2;
+            let armH = h/1.2;
+            if (this.protectTimer > 0) {
+                ctx.save();
+                let relX = (this.protectX - this.x);
+                let relY = (this.protectY - this.y);
+                if (this.isUpsideDown) relY = h - relY;
+                
+                ctx.translate(relX * 0.3, relY * 0.3);
+                if (uncleanHandImg.complete && uncleanHandImg.naturalWidth !== 0) {
+                    ctx.drawImage(uncleanHandImg, -armW*1.1 + 30, handY, armW, armH);
+                }
+                ctx.save();
+                ctx.scale(-1, 1);
+                if (uncleanHandImg.complete && uncleanHandImg.naturalWidth !== 0) {
+                    ctx.drawImage(uncleanHandImg, -armW*1.1 + 30, handY, armW, armH);
+                }
+                ctx.restore();
+                ctx.restore();
+            } else {
+                // Arms extending from shoulders
+                if (this.segments.hands.alive) {
+                    this.drawGlow(ctx, -armW*1.2 + 30, handY, armW, armH);
+                    ctx.save();
+                    ctx.scale(-1, 1);
+                    this.drawGlow(ctx, -armW*1.2 + 30, handY, armW, armH);
+                    ctx.restore();
+                }
+                if (uncleanHandImg.complete && uncleanHandImg.naturalWidth !== 0) {
+                    ctx.drawImage(uncleanHandImg, -armW*1.2 + 30, handY, armW, armH);
+                }
+                ctx.save();
+                ctx.scale(-1, 1);
+                if (uncleanHandImg.complete && uncleanHandImg.naturalWidth !== 0) {
+                    ctx.drawImage(uncleanHandImg, -armW*1.2 + 30, handY, armW, armH);
+                }
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+        ctx.restore();
+        
+        ctx.save();
+        let hbW_unit = 60; 
+        let hbH = 10;
+        // localized bar for HANDS (Arms)
+        if (this.segments.hands.alive) {
+            let armW = w/1.2;
+            // Place below arms when upright, above arms when upside down
+            let by = (this.isUpsideDown) ? this.y + h*0.4 - 20 : this.y + h*0.6 + 20; 
+            
+            [[this.x - armW*0.7, by], [this.x + armW*0.7, by]].forEach(pos => {
+                this.drawSegmentBar(ctx, pos[0] - hbW_unit/2, pos[1], hbW_unit, hbH, this.segments.hands, true, pulse);
+            });
+        }
+
+        // localized bar for BODY
+        if (this.segments.body.alive) {
+            let by = (this.isUpsideDown) ? this.y - 30 : this.y + h/2 + 30;
+            let bx = this.x - hbW_unit/2;
+            let isVulnerable = !this.segments.hands.alive;
+            this.drawSegmentBar(ctx, bx, by, hbW_unit, hbH, this.segments.body, isVulnerable, pulse);
+        }
+
+        // localized bar for HEAD
+        if (this.segments.head.alive) {
+            let by = (this.isUpsideDown) ? this.y + h + 20 : this.y - h/4 - 20;
+            let bx = this.x - hbW_unit/2;
+            let isVulnerable = !this.segments.hands.alive && !this.segments.body.alive;
+            this.drawSegmentBar(ctx, bx, by, hbW_unit, hbH, this.segments.head, isVulnerable, pulse);
+        }
+
+        ctx.restore();
+
+        // ** Global Segmented Health Bar at the Top **
+        ctx.save();
+        let gX = canvas.width / 2 - 150;
+        let gY = 20;
+        let gW = 300;
+        let gH = 15;
+        let segW = gW / 3;
+
+        // Draw background
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillRect(gX - 2, gY - 2, gW + 4, gH + 4);
+
+        // Sub-segments synchronized
+        this.drawSegmentBar(ctx, gX, gY, segW - 2, gH, this.segments.hands, true, pulse);
+        this.drawSegmentBar(ctx, gX + segW, gY, segW - 2, gH, this.segments.body, !this.segments.hands.alive, pulse);
+        this.drawSegmentBar(ctx, gX + 2 * segW, gY, segW - 2, gH, this.segments.head, !this.segments.hands.alive && !this.segments.body.alive, pulse);
+        
+        // Add dynamic "BOSS" text
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px 'Courier New', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("THE UNCLEAN ONE", canvas.width / 2, gY + gH + 15);
+        ctx.restore();
+    }
+}
+
 class Firework {
     constructor() {
         this.x = Math.random() * canvas.width;
@@ -2373,7 +2973,7 @@ class SeekingMissile {
     }
 }
 class Projectile {
-    constructor(startX, startY, targetX, targetY, targetDuck, hitSun, targetAirplane = null, targetTiger = null, targetEagle = null, isGreen = false, targetBomber = null) {
+    constructor(startX, startY, targetX, targetY, targetDuck, hitSun, targetAirplane = null, targetTiger = null, targetEagle = null, isGreen = false, targetBomber = null, hitDetails = null) {
         this.startX = startX;
         this.startY = startY;
         this.targetX = targetX;
@@ -2383,12 +2983,15 @@ class Projectile {
         this.targetTiger = targetTiger;
         this.targetEagle = targetEagle;
         this.targetBomber = targetBomber;
+        this.hitDetails = hitDetails;
         this.isGreen = isGreen;
         this.hitSun = hitSun;
         this.timeElapsed = 0;
         this.timeTotal = 0.1; // 100ms flight time
         this.isDead = false;
         this.fullyDead = false;
+        this.x = startX;
+        this.y = startY;
         this.particles = null;
     }
 
@@ -2636,13 +3239,15 @@ class Projectile {
         } else if (this.targetBomber && !this.targetBomber.isDead) { // Bomber or Boss Hit!
             if (this.targetBomber.isBoss) {
                 let boss = this.targetBomber;
-                if (boss.hitEngineIndex !== undefined) {
-                    boss.engines[boss.hitEngineIndex] = false;
+                let details = this.hitDetails || {};
+
+                // Check if it's the BigHeadBoss (has engines) vs UncleanOneBoss (has segments)
+                if (boss.engines !== undefined && details.hitEngineIndex !== undefined) {
+                    boss.engines[details.hitEngineIndex] = false;
                     boss.hp -= 5;
-                    delete boss.hitEngineIndex;
                     gameState.ammo += 2; // +2 bullets per engine shot
                     playSound(boomBuffer, 0.6);
-                } else if (boss.hitHead) {
+                } else if (details.hitHead && boss.engines !== undefined) {
                     // Check if all engines are dead
                     if (boss.engines.every(e => !e)) {
                         boss.hp -= 5;
@@ -2663,7 +3268,54 @@ class Projectile {
                             size: 20
                         });
                     }
-                    delete boss.hitHead;
+                } else if (details.hitSegment) {
+                    const seg = details.hitSegment;
+                    if (seg === 'hands') {
+                        boss.segments.hands.hp -= 10;
+                        boss.hp -= 10;
+                        boss.handsFlash = 0.2;
+                        boss.flashColor = "red";
+                        boss.painTimer = 0.3;
+                        if (boss.segments.hands.hp <= 0) {
+                            boss.segments.hands.alive = false;
+                            playSound(boomBuffer, 0.8);
+                        }
+                    } else if (seg === 'protected' || seg === 'protected_body') {
+                        // Force protection animation
+                        playSound(deflectBuffer, 1.0);
+                        boss.shieldFlash = 0.5;
+                        boss.protectTimer = 0.8; 
+                        boss.protectX = details.hitX || boss.x;
+                        boss.protectY = details.hitY || boss.y;
+                        
+                        // Flash segment gray when protected
+                        if (seg === 'protected') boss.handsFlash = 0.2;
+                        else boss.bodyFlash = 0.2;
+                        boss.flashColor = "gray";
+
+                        let text = seg === 'protected' ? "HANDS PROTECT!" : "BODY PROTECTS!";
+                        gameState.floatingTexts.push({
+                            x: details.hitX || boss.x,
+                            y: (details.hitY || boss.y) - 30,
+                            text: text,
+                            timer: 1.5,
+                            life: 1.5,
+                            color: "#00ffff",
+                            size: 20
+                        });
+                    } else {
+                        // Body or Head hit logic
+                        boss.segments[seg].hp -= 10;
+                        boss.hp -= 10;
+                        if (seg === 'body') boss.bodyFlash = 0.2;
+                        if (seg === 'head') boss.headFlash = 0.2;
+                        boss.flashColor = "red";
+                        boss.painTimer = 0.3;
+                        if (boss.segments[seg].hp <= 0) {
+                            boss.segments[seg].alive = false;
+                            playSound(boomBuffer, 0.8);
+                        }
+                    }
                 }
                 updateUI();
                 return; // CRITICAL: Stop here for Boss hit. Don't fall through to death logic!
@@ -2695,18 +3347,21 @@ class Projectile {
                 }
             });
             
+            let bW = this.targetBomber.currentWidth || this.targetBomber.width;
+            let bH = this.targetBomber.currentHeight || this.targetBomber.height;
+
             if (bonusTotal > 0) {
-                addScore(bonusTotal * 2, this.targetBomber.x + this.targetBomber.currentWidth / 2, this.targetBomber.y);
+                addScore(bonusTotal * 2, this.targetBomber.x + bW / 2, this.targetBomber.y);
             } else {
-                addScore(2000, this.targetBomber.x + this.targetBomber.currentWidth / 2, this.targetBomber.y);
+                addScore(2000, this.targetBomber.x + bW / 2, this.targetBomber.y);
             }
 
             // Explosion particles
             let particles = [];
             for (let i = 0; i < 40; i++) {
                 particles.push({
-                    x: this.targetBomber.x + this.targetBomber.currentWidth / 2,
-                    y: this.targetBomber.y + this.targetBomber.currentHeight / 2,
+                    x: this.targetBomber.x + bW / 2,
+                    y: this.targetBomber.y + bH / 2,
                     vx: (Math.random() - 0.5) * 400,
                     vy: (Math.random() - 0.5) * 400,
                     size: 5 + Math.random() * 8,
@@ -2770,6 +3425,12 @@ class Projectile {
         } else if (this.targetEagle && !this.targetEagle.isDead) {
             targetX = this.targetEagle.x + this.targetEagle.width / 2;
             targetY = this.targetEagle.y + this.targetEagle.height / 2;
+        } else if (this.targetBomber && !this.targetBomber.isDead) {
+            // Track the boss position for smooth flight
+            let bW = this.targetBomber.currentWidth || this.targetBomber.width;
+            let bH = this.targetBomber.currentHeight || this.targetBomber.height;
+            targetX = this.targetBomber.x + bW / 2;
+            targetY = this.targetBomber.y + bH / 2;
         }
 
         let currentX = this.startX + (targetX - this.startX) * t;
@@ -2911,6 +3572,8 @@ function handleShoot(event) {
         let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
         let isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
         let bopY = isRadioActive ? Math.sin(performance.now() / 150) * 4 : 0;
+        let hitDetails = null;
+
         if (currentLevel >= 4 && Math.abs(currentX - 40) <= 30 && Math.abs(currentY - (40 + bopY)) <= 30) {
             hitSun = true;
         }
@@ -2920,7 +3583,6 @@ function handleShoot(event) {
                 const hdog = gameState.hotdogs[i];
                 if (!hdog.isDead && Math.abs(currentX - (hdog.x + hdog.width / 2)) <= hdog.width / 2 &&
                     Math.abs(currentY - (hdog.y + hdog.height / 2)) <= hdog.height / 2) {
-                    // Hotdog hit! Activate missile power-up
                     hdog.isDead = true;
                     hdog.particles = [];
                     for (let i = 0; i < 15; i++) {
@@ -2953,7 +3615,6 @@ function handleShoot(event) {
                 }
             }
 
-            // Check tigers
             if (!hitEagle) {
                 for (let i = gameState.tigers.length - 1; i >= 0; i--) {
                     const tiger = gameState.tigers[i];
@@ -2965,7 +3626,6 @@ function handleShoot(event) {
                 }
             }
 
-            // Check bombers (4x larger hitbox for easier hitting)
             if (!hitTiger && !hitEagle) {
                 for (let i = gameState.heavyBombers.length - 1; i >= 0; i--) {
                     const bomber = gameState.heavyBombers[i];
@@ -2978,22 +3638,19 @@ function handleShoot(event) {
                 }
             }
 
-            // Check ducks
             if (!hitTiger && !hitEagle && !hitBomber) {
                 for (let i = gameState.ducks.length - 1; i >= 0; i--) {
                     const duck = gameState.ducks[i];
                     if (!duck.isDead && !duck.isTargeted &&
                         currentX >= duck.x && currentX <= duck.x + duck.width &&
                         currentY >= duck.y && currentY <= duck.y + duck.height) {
-
                         hitDuck = duck;
-                        duck.isTargeted = true; // Mark targeted
+                        duck.isTargeted = true;
                         break;
                     }
                 }
             }
 
-            // Check airplanes
             if (!hitDuck && !hitTiger && !hitEagle && !hitBomber) {
                 for (let plane of gameState.airplanes) {
                     if (!plane.isDead &&
@@ -3005,33 +3662,89 @@ function handleShoot(event) {
                 }
             }
 
-            // Check Boss components
-            if (!hitDuck && !hitTiger && !hitAirplane && !hitEagle && !hitBomber && gameState.boss && !gameState.boss.isDead && gameState.boss.isVulnerable) {
-                let boss = gameState.boss;
-                // Engines first (2x Larger hitboxes)
-                let eW = boss.width/5;
-                let eH = boss.height;
-                let enginePositions = [boss.width/6, boss.width/2.6, -boss.width/6, -boss.width/2.6];
-                for (let i = 0; i < 4; i++) {
-                    if (boss.engines[i]) {
-                        let ex = boss.x + boss.width/2 + enginePositions[i] - eW/2;
-                        let ey = boss.y + boss.height/2.5 - eH/2;
-                        if (currentX >= ex && currentX <= ex + eW && currentY >= ey && currentY <= ey + eH) {
-                            hitBomber = boss;
-                            boss.hitEngineIndex = i; // Temporary property to identify which engine was hit
+            if (!hitDuck && !hitTiger && !hitAirplane && !hitEagle && !hitBomber) {
+                for (let p of gameState.bossProjectiles) {
+                    if (p instanceof PoopProjectile && !p.isDead) {
+                        let dx = currentX - p.x;
+                        let dy = currentY - p.y;
+                        if (Math.sqrt(dx*dx + dy*dy) < p.size / 1.5) {
+                            p.hp -= 10;
+                            if (p.hp <= 0) {
+                                p.isDead = true;
+                                p.fullyDead = true;
+                                playSound(boomBuffer, 0.4);
+                                gameState.score += 500;
+                            } else {
+                                playSound(quackBuffer, 0.6);
+                            }
+                            hitDuck = { isDead: true };
                             break;
                         }
                     }
                 }
+            }
 
-                if (!hitBomber) {
-                    // Check Head
-                    let headSize = 100;
-                    let headX = boss.x + boss.width/2 - headSize/2;
-                    let headY = boss.y - headSize * 0.7;
-                    if (currentX >= headX && currentX <= headX + headSize && currentY >= headY && currentY <= headY + headSize) {
-                        hitBomber = boss;
-                        boss.hitHead = true;
+            if (!hitDuck && !hitTiger && !hitAirplane && !hitEagle && !hitBomber && gameState.boss && !gameState.boss.isDead && gameState.boss.isVulnerable) {
+                let boss = gameState.boss;
+                if (boss.name === "The Unclean One") {
+                    let w = boss.width;
+                    let h = boss.height;
+                    let relX = currentX - boss.x;
+                    let relY = currentY - boss.y;
+                    if (boss.isUpsideDown) relY = h - relY;
+
+                    hitDetails = { hitX: currentX, hitY: currentY };
+
+                    if (boss.segments.hands.alive) {
+                        if (Math.abs(relX) >= w * 0.3 && Math.abs(relX) <= w * 1.1 && relY >= h/4 && relY <= h * 1.1) {
+                            hitBomber = boss;
+                            hitDetails.hitSegment = 'hands';
+                        } else if (Math.abs(relX) <= w * 1.2 && relY >= -h/4 && relY <= h * 1.2) {
+                            hitBomber = boss;
+                            hitDetails.hitSegment = 'protected';
+                        }
+                    }
+                    
+                    if (!hitBomber && boss.segments.body.alive) {
+                        if (Math.abs(relX) <= w * 0.4 && relY >= h/4 && relY <= h * 0.9) {
+                            hitBomber = boss;
+                            hitDetails.hitSegment = 'body';
+                        } else if (Math.abs(relX) <= w * 0.4 && relY >= -h/4 && relY < h/4) {
+                            hitBomber = boss;
+                            hitDetails.hitSegment = 'protected_body';
+                        }
+                    }
+                    
+                    if (!hitBomber && boss.segments.head.alive) {
+                        if (Math.abs(relX) <= w * 0.3 && relY >= -h * 0.2 && relY <= h * 0.2) {
+                            hitBomber = boss;
+                            hitDetails.hitSegment = 'head';
+                        }
+                    }
+                } else {
+                    let eW = boss.width/5;
+                    let eH = boss.height;
+                    let enginePositions = [boss.width/6, boss.width/2.6, -boss.width/6, -boss.width/2.6];
+                    for (let i = 0; i < 4; i++) {
+                        if (boss.engines[i]) {
+                            let ex = boss.x + boss.width/2 + enginePositions[i] - eW/2;
+                            let ey = boss.y + boss.height/2.5 - eH/2;
+                            if (currentX >= ex && currentX <= ex + eW && currentY >= ey && currentY <= ey + eH) {
+                                hitBomber = boss;
+                                hitDetails = { hitEngineIndex: i };
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!hitBomber) {
+                        let headSize = 100;
+                        let headX = boss.x + boss.width/2 - headSize/2;
+                        let headY = boss.y - headSize * 0.7;
+                        if (currentX >= headX && currentX <= headX + headSize && currentY >= headY && currentY <= headY + headSize) {
+                            hitBomber = boss;
+                            hitDetails = { hitHead: true };
+                        }
                     }
                 }
             }
@@ -3050,7 +3763,7 @@ function handleShoot(event) {
             }
         }
 
-        gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber));
+        gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber, hitDetails));
     });
 
     gameState.ammo--;
@@ -3169,6 +3882,28 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 window.addEventListener('keydown', (e) => {
+    // Boss Shortcuts
+    if (e.shiftKey) {
+        if (e.code === 'Digit1') {
+            gameState.round = 14;
+            gameState.phase = 'SPAWN';
+            if (gameState.boss) gameState.boss = null;
+            return;
+        }
+        if (e.code === 'Digit2') {
+            // Ensure game is initialized if skipping from start
+            if (gameState.phase === 'START' || gameState.phase === 'GAME_OVER') {
+                gameState.lives = 5;
+                gameState.score = 0;
+                gameState.killCount = 0;
+            }
+            gameState.round = 24;
+            gameState.phase = 'SPAWN';
+            if (gameState.boss) gameState.boss = null;
+            return;
+        }
+    }
+
     const shootKeys = [' ', 'Enter', 'ArrowUp', '5'];
     if (shootKeys.includes(e.key) || e.code === 'Numpad5') {
         if (e.key === ' ' || e.key === 'ArrowUp') e.preventDefault(); // Stop scrolling
@@ -3804,11 +4539,11 @@ function gameLoop(timestamp) {
         if (Math.random() < 0.1) gameState.fireworks.push(new Firework());
         
         if (prevTimer > 0 && gameState.victoryTimer <= 0) {
-            // Unified Transition to Round 15
-            gameState.round = 15;
+            let finishedRound = gameState.round;
+            gameState.round = finishedRound + 1;
             gameState.boss = null;
             updateBuildingConditions();
-            showShadowyScreen(14, false, true); // (round, isNewUnlockRecord, isBossVictory)
+            showShadowyScreen(finishedRound, false, true); // (round, isNewUnlockRecord, isBossVictory)
         }
     }
 
@@ -4354,6 +5089,10 @@ function gameLoop(timestamp) {
             gameState.boss = new BigHeadBoss();
             gameState.ducks = []; // No ducks on boss level
             gameState.ammo = 12; // Start with 2x bullets (default 6)
+        } else if (gameState.round === 24) {
+            gameState.boss = new UncleanOneBoss();
+            gameState.ducks = [];
+            gameState.ammo = 20;
         } else {
             // Normal duck spawning logic would be here (usually handled in showShadowyScreen or similar)
         }
@@ -4577,6 +5316,11 @@ function gameLoop(timestamp) {
 
         requestAnimationFrame(gameLoop);
         return; // Don't draw UI or grass
+    }
+
+    // Draw Boss (Behind hills and buildings)
+    if (gameState.boss && !gameState.boss.fullyDead) {
+        gameState.boss.draw(ctx);
     }
 
     // Draw background hills (behind buildings)
@@ -4931,7 +5675,6 @@ function gameLoop(timestamp) {
 
     // Draw boss
     if (gameState.boss) {
-        gameState.boss.draw(ctx);
     }
     gameState.bossProjectiles.forEach(p => p.draw(ctx));
 
@@ -5148,6 +5891,24 @@ function gameLoop(timestamp) {
     gameState.floatingTexts = gameState.floatingTexts.filter(ft => ft.life > 0);
 
     drawPresenceIndicator(ctx, dt);
+
+    // Poop Stain Screen Effect (Drawn on top of everything before final UI elements or as final overlay)
+    if (gameState.poopStainTimer > 0) {
+        ctx.save();
+        let opacity = 1.0;
+        if (gameState.poopStainTimer < 0.5) {
+            opacity = gameState.poopStainTimer / 0.5;
+        }
+        ctx.globalAlpha = opacity;
+        
+        // Draw centered, roughly 30% of screen area
+        let sW = canvas.width * 0.7;
+        let sH = canvas.height * 0.6;
+        ctx.drawImage(poopStainImg, canvas.width/2 - sW/2 + gameState.poopStainX, canvas.height/2 - sH/2 + gameState.poopStainY, sW, sH);
+        
+        ctx.restore();
+        gameState.poopStainTimer -= dt;
+    }
 
     requestAnimationFrame(gameLoop);
 }
@@ -5913,7 +6674,11 @@ function showShadowyScreen(round, isNewUnlockRecord, isBossVictory) {
 
     if (isBossVictory) {
         portraitContainer.style.display = 'none';
-        shadowyText.innerHTML = `"You have done what many thought impossible. The Pilot of the Heavy Bomber has been grounded. But remember... even a giant head can leave a shadow."<br><br><span style="color: #FFD700;">- BOSS DEFEATED -</span>`;
+        if (round === 24) {
+            shadowyText.innerHTML = `"That's a lot of cleaning up to do! You're like a layers of an onion... wait, that's Shrek. You just did a swamp-sized job on that Unclean One. Get out of my swamp!"<br><br><span style="color: #FFD700;">- CLEANED UP -</span>`;
+        } else {
+            shadowyText.innerHTML = `"You have done what many thought impossible. The Pilot of the Heavy Bomber has been grounded. But remember... even a giant head can leave a shadow."<br><br><span style="color: #FFD700;">- BOSS DEFEATED -</span>`;
+        }
         shadowyContinue.style.display = 'block'; // Show immediately for boss
     } else if (isNewUnlock) {
         portraitContainer.style.display = 'flex';
