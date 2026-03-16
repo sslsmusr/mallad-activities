@@ -85,8 +85,6 @@ const carCockpitImg = new Image();
 carCockpitImg.src = `car_cockpit.png?v=${CACHE_VERSION}`;
 const steeringWheelImg = new Image();
 steeringWheelImg.src = `steering_wheel.png?v=${CACHE_VERSION}`;
-const steeringWheelBmwImg = new Image();
-steeringWheelBmwImg.src = `steering_wheel_bmw_png_1773661748851.png?v=${CACHE_VERSION}`;
 const duckFrontImg = new Image();
 duckFrontImg.src = `duck_front_v2.png?v=${CACHE_VERSION}`;
 const cockroachFrontImg = new Image();
@@ -95,14 +93,16 @@ const doorPanelLeftImg = new Image();
 doorPanelLeftImg.src = `door_panel_left.png?v=${CACHE_VERSION}`;
 const doorPanelRightImg = new Image();
 doorPanelRightImg.src = `door_panel_right.png?v=${CACHE_VERSION}`;
+const gasCanImg = new Image();
+gasCanImg.src = `gas_can_high_detail_retro_1773677022280.png?v=${CACHE_VERSION}`;
 
 let processedCockpit = null;
 let processedWheel = null;
-let processedBmwWheel = null;
 let processedDoorLeft = null;
 let processedDoorRight = null;
 let processedDuckFront = null;
 let processedCockroachFront = null;
+let processedGasCan = null;
 
 function removeColor(img, r, g, b, tolerance = 10) {
     if (img.width === 0 || img.height === 0) return null;
@@ -161,9 +161,6 @@ const processAssets = () => {
     
     if (steeringWheelImg.complete) processedWheel = removeColor(steeringWheelImg, 255, 0, 255, 60); 
     else steeringWheelImg.onload = () => { processedWheel = removeColor(steeringWheelImg, 255, 0, 255, 60); };
-
-    if (steeringWheelBmwImg.complete) processedBmwWheel = removeColor(steeringWheelBmwImg, 0, 0, 0, 30); 
-    else steeringWheelBmwImg.onload = () => { processedBmwWheel = removeColor(steeringWheelBmwImg, 0, 0, 0, 30); };
     
     // Door panels should be opaque to block the background
     processedDoorLeft = doorPanelLeftImg;
@@ -173,8 +170,12 @@ const processAssets = () => {
     if (duckFrontImg.complete) processedDuckFront = removeColor(duckFrontImg, 0, 255, 0, 80);
     else duckFrontImg.onload = () => { processedDuckFront = removeColor(duckFrontImg, 0, 255, 0, 80); };
     
+    
     if (cockroachFrontImg.complete) processedCockroachFront = removeColor(cockroachFrontImg, 0, 255, 0, 80);
     else cockroachFrontImg.onload = () => { processedCockroachFront = removeColor(cockroachFrontImg, 0, 255, 0, 80); };
+
+    if (gasCanImg.complete) processedGasCan = removeColor(gasCanImg, 30, 30, 30, 30); // Remove dark background
+    else gasCanImg.onload = () => { processedGasCan = removeColor(gasCanImg, 30, 30, 30, 30); };
 };
 processAssets();
 
@@ -591,6 +592,48 @@ let gameState = {
     fireworks: []
 };
 
+function resetGameState() {
+    gameState.score = 0;
+    gameState.killCount = 0;
+    gameState.sessionKills = 0;
+    gameState.ammo = 6;
+    gameState.lives = 5;
+    gameState.round = 1;
+    gameState.ducks = [];
+    gameState.projectiles = [];
+    gameState.buildings = [];
+    gameState.hills = [];
+    gameState.airplanes = [];
+    gameState.tigers = [];
+    gameState.eagles = [];
+    gameState.hotdogs = [];
+    gameState.seekingMissiles = [];
+    gameState.floatingTexts = [];
+    gameState.powerUpActive = false;
+    gameState.powerUpTimer = 0;
+    gameState.hotdogPowerUpActive = false;
+    gameState.hotdogPowerUpTimer = 0;
+    gameState.tigersKilled = 0;
+    gameState.airplanesKilled = 0;
+    gameState.timer = 0;
+    gameState.dogPlayedSound = false;
+    gameState.escapedThisRound = 0;
+    gameState.perfectRounds = 0;
+    if (gameState.drivingMode) gameState.drivingMode.stopRumble();
+    gameState.drivingMode = null;
+    gameState.splatters = [];
+    gameState.boss = null;
+    gameState.bossProjectiles = [];
+    gameState.heavyBombers = [];
+    gameState.rainDrops = [];
+    gameState.fireworks = [];
+    gameState.phase = 'START';
+    
+    // UI Resets
+    document.getElementById('score-display').innerText = '000000';
+    document.getElementById('round-display').innerText = 'R=1';
+    updateUI();
+}
 function getSeasonData(round) {
     const seasonIdx = Math.floor((round - 1) / 10) % 4;
     // 0: Spring, 1: Summer, 2: Autumn, 3: Winter
@@ -1379,14 +1422,54 @@ class DrivingEnemy {
         playSound(this.type === 'duck' ? quackBuffer : boomBuffer, 0.8);
         addScore(1000, this.x, this.y);
         gameState.killCount++;
-        if (this.type === 'duck' && gameState.drivingMode) {
-            gameState.drivingMode.duckKills++;
-        }
     }
 
     draw(ctx) {
         let img = this.type === 'duck' ? (processedDuckFront || duckFrontImg) : (processedCockroachFront || cockroachFrontImg);
         ctx.drawImage(img, this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+    }
+}
+
+class FuelCan {
+    constructor() {
+        this.baseX = canvas.width / 2;
+        this.baseY = canvas.height * 0.3;
+        this.x = this.baseX;
+        this.y = this.baseY;
+        this.size = 5;
+        this.timer = 0;
+        this.maxTimer = 3.2;
+        // Positioned in the expanded roadside margins (Wider road)
+        this.side = (Math.random() < 0.5 ? -1.3 : 1.3) + (Math.random() - 0.5) * 0.2;
+        this.isDead = false;
+        this.fullyDead = false;
+    }
+
+    update(dt) {
+        this.timer += dt;
+        // Grow 2x every 300ms (0.3s)
+        this.size = 10 * Math.pow(2, this.timer / 0.3);
+        if (this.size > 220) this.size = 220; // Cap to keep it playable
+
+        let progress = Math.min(1.0, this.timer / this.maxTimer);
+        this.y = this.baseY + (canvas.height * 0.55) * (progress * progress);
+        
+        let bend = (gameState.drivingMode ? gameState.drivingMode.wheelRotation * 1050 : 0) * (progress * progress);
+        this.x = this.baseX + (canvas.width * this.side) * (progress * progress) + bend;
+
+        if (this.timer >= this.maxTimer) {
+            this.fullyDead = true;
+        }
+    }
+
+    draw(ctx) {
+        let img = processedGasCan || gasCanImg;
+        if (img && img.width > 0) {
+            ctx.drawImage(img, this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+        } else {
+            ctx.fillStyle = "#ff5722"; 
+            ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+        }
     }
 }
 
@@ -1408,12 +1491,53 @@ class DrivingMode {
 
         this.totalDistance = 0;
         this.baseSpeed = 400;
-        this.signY = 0; // Perspective Y for the sign
-        this.signSide = 1; // 1 for right, -1 for left
-        
-        this.ammoTimer = 10;
-        this.duckKills = 0;
-        this.isBMW = false;
+        this.signY = 0; 
+        this.signSide = 1; 
+
+        this.fuel = 300;
+        this.fuelDrainTimer = 5;
+        this.gasCanTimer = 10;
+        this.gasCans = [];
+        this.fuelIndicatorTimer = 0;
+
+        this.shakeY = 0;
+        this.shakeTimer = 0;
+        this.baseRumbleFreq = 45;
+        this.rumbleSource = null;
+        this.rumbleGain = null;
+        this.startRumble();
+    }
+
+    startRumble() {
+        if (!gameState.settings.sfx) return;
+        try {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            this.rumbleSource = audioCtx.createOscillator();
+            this.rumbleSource.type = 'triangle';
+            this.rumbleSource.frequency.setValueAtTime(this.baseRumbleFreq, audioCtx.currentTime);
+            
+            this.rumbleGain = audioCtx.createGain();
+            this.rumbleGain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(100, audioCtx.currentTime);
+            
+            this.rumbleSource.connect(filter);
+            filter.connect(this.rumbleGain);
+            this.rumbleGain.connect(audioCtx.destination);
+            this.rumbleSource.start();
+        } catch(e) { console.error("Rumble fail", e); }
+    }
+
+    stopRumble() {
+        if (this.rumbleSource) {
+            try {
+                this.rumbleSource.stop();
+                this.rumbleSource.disconnect();
+                this.rumbleSource = null;
+            } catch(e) {}
+        }
     }
 
     update(dt) {
@@ -1442,6 +1566,29 @@ class DrivingMode {
             this.speed = 0;
         }
 
+        // Screen Shake Logic
+        this.shakeTimer -= dt;
+        if (this.shakeTimer <= 0) {
+            if (Math.random() < 0.015) { // Occasional rumble burst
+                this.shakeTimer = 0.5 + Math.random() * 0.7;
+            } else {
+                this.shakeY = 0;
+            }
+        }
+
+        if (this.shakeTimer > 0) {
+            this.shakeY = (Math.random() - 0.5) * 5; // 3-5px shake
+            if (this.rumbleSource) {
+                // Pitch variation during shake
+                this.rumbleSource.frequency.setTargetAtTime(this.baseRumbleFreq * 1.6, audioCtx.currentTime, 0.1);
+            }
+        } else {
+            this.shakeY = 0;
+            if (this.rumbleSource) {
+                this.rumbleSource.frequency.setTargetAtTime(this.baseRumbleFreq, audioCtx.currentTime, 0.2);
+            }
+        }
+
         this.spawnTimer -= dt;
         // Stop spawning enemies as we slow down
         if (this.spawnTimer <= 0 && remaining > 15) {
@@ -1451,29 +1598,54 @@ class DrivingMode {
 
         this.enemies.forEach(e => e.update(dt));
         this.enemies = this.enemies.filter(e => !e.fullyDead);
+
+        this.gasCans.forEach(g => g.update(dt));
+        this.gasCans = this.gasCans.filter(g => !g.fullyDead);
+
+        // Fuel Logic
+        this.fuelDrainTimer -= dt;
+        if (this.fuelDrainTimer <= 0) {
+            this.fuelDrainTimer = 5;
+            this.fuel -= 30;
+            if (this.fuel < 1) {
+                // Game Over: Ran out of gas
+                if (typeof triggerGameOver === 'function') {
+                    // Update death text for specific failure
+                    if (window.deathTextLines) {
+                        deathTextLines = ["YOU RAN OUT OF GAS", "THE JOURNEY ENDS HERE", "REST IN PIXELS"];
+                    }
+                    this.stopRumble();
+                    triggerGameOver();
+                }
+            }
+        }
+
+        this.gasCanTimer -= dt;
+        if (this.gasCanTimer <= 0) {
+            this.gasCanTimer = 3.33; // 3x frequency (10s / 3)
+            this.gasCans.push(new FuelCan());
+        }
+
+        if (this.fuelIndicatorTimer > 0) this.fuelIndicatorTimer -= dt;
         
         let targetRot = 0;
         if (isMobile) {
-            // Smooth autonomous steering for mobile
             this.autopilotTimer -= dt;
             if (this.autopilotTimer <= 0) {
-                this.autopilotTarget = (Math.random() - 0.5) * 1.4; // -0.7 to 0.7
-                this.autopilotTimer = 2.0 + Math.random() * 3.0; // Change target every 2-5s
+                this.autopilotTarget = (Math.random() - 0.5) * 1.4; 
+                this.autopilotTimer = 2.0 + Math.random() * 3.0; 
             }
             this.autopilotAngle += (this.autopilotTarget - this.autopilotAngle) * dt * 1.0;
             targetRot = this.autopilotAngle;
         } else {
-            // Interactive wheel for desktop
             targetRot = (currentAimX - canvas.width/2) / (canvas.width/2) * 0.7;
         }
         this.wheelRotation += (targetRot - this.wheelRotation) * dt * 5;
         if (isNaN(this.wheelRotation)) this.wheelRotation = 0;
 
-        // Ammo Restock every 10s
-        this.ammoTimer -= dt;
-        if (this.ammoTimer <= 0) {
-            this.ammoTimer = 10;
-            gameState.ammo = 30; // Assuming 30 is max/standard
+        // Ammo Restock ONLY IF 0 ammo
+        if (gameState.ammo <= 0) {
+            gameState.ammo = 30; 
             gameState.floatingTexts.push({
                 x: canvas.width/2,
                 y: canvas.height/2,
@@ -1485,28 +1657,17 @@ class DrivingMode {
             });
         }
 
-        // Perk: BMW Steering Wheel
-        if (this.duckKills >= 10 && this.timer < this.gameTime && !this.isBMW) {
-            this.isBMW = true;
-            gameState.floatingTexts.push({
-                x: canvas.width/2,
-                y: canvas.height/2 - 50,
-                text: "BMW PERK UNLOCKED",
-                life: 2.0,
-                maxLife: 2.0,
-                timer: 2.0,
-                color: "#FFD700"
-            });
-        }
-
         if (this.timer >= this.gameTime) {
+            this.stopRumble();
             gameState.drivingMode = null;
-            // Transition to Shadowy Figure screen instead of DOG
             showShadowyScreen(gameState.round, false);
         }
     }
 
     draw(ctx) {
+        ctx.save();
+        ctx.translate(0, this.shakeY);
+
         // Only clear the ground area (below horizon)
         let horizonY = canvas.height * 0.3;
         ctx.fillStyle = '#222';
@@ -1597,7 +1758,7 @@ class DrivingMode {
         }
 
         // Perspective road with Bending
-        let bendFactor = this.wheelRotation * 150; // How much it bends
+        let bendFactor = this.wheelRotation * 1050; // Curvature reduced by 30%
         
         ctx.fillStyle = '#111';
         ctx.beginPath();
@@ -1606,9 +1767,10 @@ class DrivingMode {
         let hRX = canvas.width * 0.55;
         ctx.moveTo(hLX, horizonY);
         ctx.lineTo(hRX, horizonY);
-        // Bottom points (bent)
-        ctx.lineTo(canvas.width + 200 + bendFactor, canvas.height);
-        ctx.lineTo(-200 + bendFactor, canvas.height);
+        // Bottom points (bent) - 2.5x wider road
+        let rBottomWidth = canvas.width * 1.0; 
+        ctx.lineTo(canvas.width / 2 + rBottomWidth + bendFactor, canvas.height);
+        ctx.lineTo(canvas.width / 2 - rBottomWidth + bendFactor, canvas.height);
         ctx.fill();
 
         // Road stripes (Bent)
@@ -1628,9 +1790,9 @@ class DrivingMode {
         ctx.strokeStyle = '#fff';
         ctx.beginPath();
         ctx.moveTo(hLX, horizonY);
-        ctx.lineTo(-200 + bendFactor, canvas.height);
+        ctx.lineTo(canvas.width / 2 - rBottomWidth + bendFactor, canvas.height);
         ctx.moveTo(hRX, horizonY);
-        ctx.lineTo(canvas.width + 200 + bendFactor, canvas.height);
+        ctx.lineTo(canvas.width / 2 + rBottomWidth + bendFactor, canvas.height);
         ctx.stroke();
 
         // --- Liulin Sign Sequence (Appear at 6s) ---
@@ -1639,31 +1801,47 @@ class DrivingMode {
             // Sign starts at horizon and grows
             // Time elapsed since 6s mark: 0 to 6
             let elapsed = 6 - timeRemaining;
-            let progress = Math.min(1.0, elapsed / 5); // 0.0 at 6s, 1.0 at 1s
+            // Cap growth and movement at middle of screen
+            let rawProgress = elapsed / 2.5; // reaches 1.0 at 2.5s elapsed
+            let stopProgress = Math.min(1.0, rawProgress);
             
             ctx.save();
-            let signW = 120 * (progress * 4);
-            let signH = 80 * (progress * 4);
-            let signX = (canvas.width / 2 + (canvas.width * 0.4 * progress) + bendFactor * progress);
-            let signY = horizonY + (canvas.height * 0.4) * (progress * progress);
+            let signW = 160 * stopProgress;
+            let signH = 100 * stopProgress;
+            // Arrive from center (horizon)
+            let startX = canvas.width / 2;
+            // Progressive shift to the right as it approaches
+            let rightShift = 120 * stopProgress; 
+            let targetX = (canvas.width * 0.82) - signW / 2 + 50 + rightShift;
+            let bend = bendFactor * stopProgress;
+            let signX = startX + (targetX - startX) * stopProgress + bend;
+            
+            // Arrive from horizon
+            let startY = horizonY;
+            // Stop at middle of screen
+            let targetY = (canvas.height * 0.55) - signH / 2;
+            let signY = startY + (targetY - startY) * stopProgress;
             
             // White background sign with gray border
             ctx.fillStyle = '#eee';
             ctx.strokeStyle = '#999';
-            ctx.lineWidth = 4 * (1 + progress);
-            ctx.fillRect(signX, signY - signH, signW, signH);
-            ctx.strokeRect(signX, signY - signH, signW, signH);
+            ctx.lineWidth = 4;
+            ctx.fillRect(signX, signY, signW, signH);
+            ctx.strokeRect(signX, signY, signW, signH);
             
-            // Lettering
+            // Lettering - 8-bit style (Avoid 0px font crash)
             ctx.fillStyle = '#333';
             ctx.textAlign = 'center';
-            ctx.font = `bold ${14 * (1 + progress * 2)}px 'Courier New', monospace`;
-            ctx.fillText("WELCOME TO", signX + signW/2, signY - signH * 0.6);
-            ctx.fillText("LIULIN", signX + signW/2, signY - signH * 0.3);
+            let fontSize = Math.max(0.1, 10 * stopProgress);
+            ctx.font = `${fontSize}px 'Press Start 2P', cursive`;
+            ctx.fillText("WELCOME TO", signX + signW/2, signY + signH * 0.4);
+            ctx.fillText("LIULIN", signX + signW/2, signY + signH * 0.7);
             
-            // Sign post
-            ctx.fillStyle = '#888';
-            ctx.fillRect(signX + signW/4, signY, 8 * (1 + progress), signH * 0.5);
+            // Sign post (two poles for a larger sign)
+            ctx.fillStyle = '#666';
+            let postW = 6 * stopProgress;
+            ctx.fillRect(signX + signW * 0.2, signY + signH, postW, signH * 0.8);
+            ctx.fillRect(signX + signW * 0.8 - postW, signY + signH, postW, signH * 0.8);
             ctx.restore();
         }
 
@@ -1684,6 +1862,62 @@ class DrivingMode {
         ctx.textAlign = "left";
         // Position below the Sun (Sun center at 40, radius 20, so 60 is bottom of sun)
         ctx.fillText(timeStr, 20, 85); 
+        ctx.restore();
+
+        // Draw Gas Cans
+        if (this.gasCans) {
+            this.gasCans.forEach(g => g.draw(ctx));
+        }
+
+        // --- Fuel Bar HUD ---
+        let barH = 300;
+        let barW = 20;
+        let barX = 10;
+        let barY = (canvas.height - barH) / 2;
+        
+        // Background
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // UI layer
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(barX, barY, barW, barH);
+        
+        // Fill
+        let fillH = (Math.max(0, this.fuel) / 300) * barH;
+        let gradient = ctx.createLinearGradient(0, barY + barH, 0, barY);
+        gradient.addColorStop(0, "#f44336"); // Red
+        gradient.addColorStop(0.5, "#ffeb3b"); // Yellow
+        gradient.addColorStop(1, "#4caf50"); // Green
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(barX, barY + barH - fillH, barW, fillH);
+        
+        // Border
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(barX, barY, barW, barH);
+
+        // Label and Icon
+        ctx.fillStyle = "#fff";
+        ctx.font = "10px 'Press Start 2P', cursive";
+        ctx.textAlign = "center";
+        ctx.fillText("FUEL", barX + barW / 2, barY - 35);
+        
+        // Stylized Fuel Icon (Small gas can)
+        let iconY = barY - 25;
+        ctx.fillStyle = "#f44336";
+        ctx.fillRect(barX + 2, iconY, barW - 4, 15); // Main body
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(barX + barW - 6, iconY - 4, 4, 6); // Spout
+        ctx.fillRect(barX + 4, iconY - 2, 8, 2); // Handle
+
+        ctx.restore(); // Restore shakeY translate
+
+        // +15 Indicator
+        if (this.fuelIndicatorTimer > 0) {
+            ctx.fillStyle = "#4caf50";
+            ctx.font = "14px 'Press Start 2P', cursive";
+            ctx.fillText("+15", barX + barW + 10, barY + barH/2);
+        }
         ctx.restore();
     }
 
@@ -1745,7 +1979,6 @@ class DrivingMode {
         ctx.rotate(this.wheelRotation);
         let wheelS = dashH * 1.6; 
         let wheel = processedWheel || steeringWheelImg;
-        if (this.isBMW) wheel = processedBmwWheel || steeringWheelBmwImg;
         if (wheel && wheel.width > 0 && !isNaN(this.wheelRotation)) {
             ctx.drawImage(wheel, -wheelS/2, -wheelS/2, wheelS, wheelS);
         }
@@ -4173,12 +4406,29 @@ function handleShoot(event) {
         let hitDrivingEnemy = null;
 
         if (gameState.drivingMode) {
+            // Check driving enemies
             for (let i = gameState.drivingMode.enemies.length - 1; i >= 0; i--) {
                 const enemy = gameState.drivingMode.enemies[i];
                 if (!enemy.isDead && Math.abs(currentX - enemy.x) <= enemy.size / 2 + 10 &&
                     Math.abs(currentY - enemy.y) <= enemy.size / 2 + 10) {
                     hitDrivingEnemy = enemy;
                     break;
+                }
+            }
+            // Check gas cans
+            if (!hitDrivingEnemy) {
+                for (let i = gameState.drivingMode.gasCans.length - 1; i >= 0; i--) {
+                    const can = gameState.drivingMode.gasCans[i];
+                    if (!can.isDead && Math.abs(currentX - can.x) <= can.size / 2 + 15 &&
+                        Math.abs(currentY - can.y) <= can.size / 2 + 15) {
+                        can.isDead = true;
+                        can.fullyDead = true;
+                        gameState.drivingMode.fuel = Math.min(300, gameState.drivingMode.fuel + 15);
+                        gameState.drivingMode.fuelIndicatorTimer = 0.5;
+                        playSound(jingleBuffer, 0.8); // "Chirp" sound
+                        hitDrivingEnemy = { isDead: true }; // Target absorbed
+                        break;
+                    }
                 }
             }
         }
@@ -4431,6 +4681,10 @@ function triggerGameOver() {
     gameState.deathStreak++;
     localStorage.setItem('mallard_death_streak', gameState.deathStreak);
 
+    // Full reset after death screen starts
+    resetGameState();
+    gameState.phase = 'GAME_OVER'; // Ensure phase remains GAME_OVER for loop
+
     // Delay displaying reset button by 2 seconds to absorb the impact
     setTimeout(() => {
         if (gameState.phase === 'GAME_OVER') {
@@ -4512,8 +4766,14 @@ window.addEventListener('keydown', (e) => {
             return;
         }
         if (e.code === 'Digit3') {
-            gameState.round = 33;
-            gameState.drivingMode = new DrivingMode();
+            // Shift+3 triggers car scene after character selection
+            if (gameState.character !== null) {
+                gameState.round = 33;
+                gameState.drivingMode = new DrivingMode();
+                gameState.phase = 'PLAY';
+                updateUI();
+                localStorage.setItem('mallard_max_round', Math.max(gameState.maxRoundReached, 33));
+            }
             return;
         }
     }
@@ -6954,7 +7214,7 @@ function resetToStart(e) {
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    gameState.phase = 'START';
+    resetGameState();
     startScreen.style.display = 'flex';
 }
 resetBtn.addEventListener('click', resetToStart);
