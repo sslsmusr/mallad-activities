@@ -3,6 +3,7 @@
 
     // Security: Anti-Tamper & DevTools Detection
     window.MALLARD_SECURITY = !(/debug=(1|true)/.test(window.location.search));
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     const blockDevTools = () => {
         if (!window.MALLARD_SECURITY) {
@@ -78,6 +79,104 @@ const poopImg = new Image();
 poopImg.src = `poop.png?v=${CACHE_VERSION}`;
 const poopStainImg = new Image();
 poopStainImg.src = `poop_stain_splat.png?v=${CACHE_VERSION}`;
+
+// Driving Mini-game Assets
+const carCockpitImg = new Image();
+carCockpitImg.src = `car_cockpit.png?v=${CACHE_VERSION}`;
+const steeringWheelImg = new Image();
+steeringWheelImg.src = `steering_wheel.png?v=${CACHE_VERSION}`;
+const steeringWheelBmwImg = new Image();
+steeringWheelBmwImg.src = `steering_wheel_bmw_png_1773661748851.png?v=${CACHE_VERSION}`;
+const duckFrontImg = new Image();
+duckFrontImg.src = `duck_front_v2.png?v=${CACHE_VERSION}`;
+const cockroachFrontImg = new Image();
+cockroachFrontImg.src = `cockroach_front_v2.png?v=${CACHE_VERSION}`;
+const doorPanelLeftImg = new Image();
+doorPanelLeftImg.src = `door_panel_left.png?v=${CACHE_VERSION}`;
+const doorPanelRightImg = new Image();
+doorPanelRightImg.src = `door_panel_right.png?v=${CACHE_VERSION}`;
+
+let processedCockpit = null;
+let processedWheel = null;
+let processedBmwWheel = null;
+let processedDoorLeft = null;
+let processedDoorRight = null;
+let processedDuckFront = null;
+let processedCockroachFront = null;
+
+function removeColor(img, r, g, b, tolerance = 10) {
+    if (img.width === 0 || img.height === 0) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    try {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            if (Math.abs(data[i] - r) <= tolerance && 
+                Math.abs(data[i+1] - g) <= tolerance && 
+                Math.abs(data[i+2] - b) <= tolerance) {
+                data[i+3] = 0;
+            }
+        }
+        ctx.putImageData(imageData, 0, 0);
+        return canvas;
+    } catch (e) {
+        console.warn("Could not process image transparency:", e);
+        return img;
+    }
+}
+
+function maskCockpit(img) {
+    if (img.width === 0 || img.height === 0) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    try {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        // User wants only the pure black parts removed in the upper part (windshield)
+        const limitY = img.height * 0.48; // Cutoff everything above the dashboard
+        for (let i = 0; i < data.length; i += 4) {
+            const y = Math.floor((i / 4) / img.width);
+            if (y < limitY) {
+                data[i+3] = 0; // Wipe out roof and pillars completely
+            }
+        }
+        ctx.putImageData(imageData, 0, 0);
+        return canvas;
+    } catch (e) {
+        console.warn("Could not process selective mask:", e);
+        return img;
+    }
+}
+
+const processAssets = () => {
+    if (carCockpitImg.complete) processedCockpit = maskCockpit(carCockpitImg);
+    else carCockpitImg.onload = () => { processedCockpit = maskCockpit(carCockpitImg); };
+    
+    if (steeringWheelImg.complete) processedWheel = removeColor(steeringWheelImg, 255, 0, 255, 60); 
+    else steeringWheelImg.onload = () => { processedWheel = removeColor(steeringWheelImg, 255, 0, 255, 60); };
+
+    if (steeringWheelBmwImg.complete) processedBmwWheel = removeColor(steeringWheelBmwImg, 0, 0, 0, 30); 
+    else steeringWheelBmwImg.onload = () => { processedBmwWheel = removeColor(steeringWheelBmwImg, 0, 0, 0, 30); };
+    
+    // Door panels should be opaque to block the background
+    processedDoorLeft = doorPanelLeftImg;
+    processedDoorRight = doorPanelRightImg;
+
+    // Process driving enemies (duck and cockroach) - remove background
+    if (duckFrontImg.complete) processedDuckFront = removeColor(duckFrontImg, 0, 255, 0, 80);
+    else duckFrontImg.onload = () => { processedDuckFront = removeColor(duckFrontImg, 0, 255, 0, 80); };
+    
+    if (cockroachFrontImg.complete) processedCockroachFront = removeColor(cockroachFrontImg, 0, 255, 0, 80);
+    else cockroachFrontImg.onload = () => { processedCockroachFront = removeColor(cockroachFrontImg, 0, 255, 0, 80); };
+};
+processAssets();
 
 // Gore Assets
 const uncleanBonesImg = new Image();
@@ -392,6 +491,24 @@ function addScore(base, x, y) {
     return points;
 }
 
+function triggerDrivingPenalty() {
+    gameState.score = Math.max(0, gameState.score - 500);
+    gameState.redFlashTimer = 0.3;
+    gameState.shakeTimer = 0.4;
+    
+    // Red floating text for penalty (centered)
+    gameState.floatingTexts.push({
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        text: "-500",
+        color: "#ff3d00", // Bright red
+        life: 1.5,
+        maxLife: 1.5,
+        timer: 1.5
+    });
+    updateUI();
+}
+
 // Game State
 let gameState = {
     score: 0,
@@ -448,6 +565,8 @@ let gameState = {
     shakeTimer: 0,
     bomberSpawnTimer: 0,
     rainDrops: [],
+    drivingMode: null,
+    splatters: [],
     thunderTimer: Math.random() * 5,
     thunderFlash: 0,
     introDuck: {
@@ -1092,11 +1211,15 @@ class HeavyBomber {
         this.age += dt;
         if (this.age >= this.maxAge) {
             // Penalty: Bomber escaped!
-            gameState.lives--;
-            gameState.redFlashTimer = 1.0;
-            gameState.shakeTimer = 1.0;
+            if (gameState.drivingMode) {
+                triggerDrivingPenalty();
+            } else {
+                gameState.lives--;
+                gameState.redFlashTimer = 1.0;
+                gameState.shakeTimer = 1.0;
+                updateUI();
+            }
             playSound(boomBuffer, 0.5); // Dull impact
-            updateUI();
 
             if (this.rumbleSource) {
                 try { this.rumbleSource.stop(); } catch(e){}
@@ -1169,6 +1292,464 @@ class HeavyBomber {
         ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
         ctx.fillRect(-w/20 + 2, -h/2.5 + 2, w/40, h/10);
 
+        ctx.restore();
+    }
+}
+
+class Splatter {
+    constructor(color) {
+        this.x = Math.random() * (canvas.width - 90);
+        this.y = Math.random() * (canvas.height - 90);
+        this.size = 60 + Math.random() * 30;
+        this.color = color;
+        this.life = 1.0;
+        this.rotation = Math.random() * Math.PI * 2;
+    }
+
+    update(dt) {
+        this.life -= dt;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x + this.size/2, this.y + this.size/2);
+        ctx.rotate(this.rotation);
+        ctx.globalAlpha = Math.max(0, Math.min(1.0, this.life * 2));
+        ctx.fillStyle = this.color;
+        // Irregular splatter shape
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            let angle = (i / 8) * Math.PI * 2;
+            let dist = (this.size / 2) * (0.6 + Math.random() * 0.4);
+            ctx.lineTo(Math.cos(angle) * dist, Math.sin(angle) * dist);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+class DrivingEnemy {
+    constructor(type) {
+        this.type = type; // 'duck' or 'cockroach'
+        this.x = canvas.width / 2;
+        this.y = canvas.height * 0.3; // Match new horizon (30%)
+        this.baseX = this.x;
+        this.baseY = this.y;
+        this.size = 2;
+        this.maxSize = 100; // Increased base size for better visibility
+        this.timer = 0;
+        this.maxTimer = 3.2; 
+        this.side = (Math.random() - 0.5) * 0.8; // Wider spread
+        this.isDead = false;
+        this.fullyDead = false;
+    }
+
+    update(dt) {
+        this.timer += dt;
+        let progress = Math.min(1.0, this.timer / this.maxTimer);
+        // Approach from horizon effect
+        this.size = 2 + (this.maxSize - 2) * (progress * progress);
+        
+        // End up at roughly 70% screen height (top of dashboard)
+        this.y = this.baseY + (canvas.height * 0.4) * (progress * progress);
+        // Move outwards from center
+        this.x = this.baseX + (canvas.width * 0.4 * this.side) * (progress * progress);
+
+        if (this.timer >= this.maxTimer) {
+            // Hit player! - No life loss during driving
+            triggerDrivingPenalty();
+
+            let color = this.type === 'duck' ? '#FFD700' : '#5D4037';
+            if (gameState.splatters) gameState.splatters.push(new Splatter(color));
+            playSound(boomBuffer, 0.8);
+            this.isDead = true;
+            this.fullyDead = true;
+        }
+    }
+
+    die() {
+        if (this.isDead) return;
+        this.isDead = true;
+        this.fullyDead = true;
+        
+        let color = this.type === 'duck' ? '#FFD700' : '#5D4037';
+        if (gameState.splatters) gameState.splatters.push(new Splatter(color));
+        
+        playSound(this.type === 'duck' ? quackBuffer : boomBuffer, 0.8);
+        addScore(1000, this.x, this.y);
+        gameState.killCount++;
+        if (this.type === 'duck' && gameState.drivingMode) {
+            gameState.drivingMode.duckKills++;
+        }
+    }
+
+    draw(ctx) {
+        let img = this.type === 'duck' ? (processedDuckFront || duckFrontImg) : (processedCockroachFront || cockroachFrontImg);
+        ctx.drawImage(img, this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+    }
+}
+
+class DrivingMode {
+    constructor() {
+        this.roadOffset = 0;
+        this.spawnTimer = 0.5;
+        this.enemies = [];
+        this.wheelRotation = 0;
+        this.speed = 400;
+        this.timer = 0;
+        this.gameTime = 120; // 2 minutes
+        this.duckWaveTimer = 0;
+        
+        // Autopilot for mobile
+        this.autopilotAngle = 0;
+        this.autopilotTarget = 0;
+        this.autopilotTimer = 0;
+
+        this.totalDistance = 0;
+        this.baseSpeed = 400;
+        this.signY = 0; // Perspective Y for the sign
+        this.signSide = 1; // 1 for right, -1 for left
+        
+        this.ammoTimer = 10;
+        this.duckKills = 0;
+        this.isBMW = false;
+    }
+
+    update(dt) {
+        this.timer += dt;
+        this.duckWaveTimer += dt;
+        
+        // Duck waves every 10 seconds at same round conditions (Round 1)
+        if (this.duckWaveTimer >= 10) {
+            this.duckWaveTimer = 0;
+            // Spawn a wave of 3-4 ducks
+            let count = 3 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < count; i++) {
+                gameState.ducks.push(new Duck());
+            }
+        }
+
+        this.totalDistance += dt * this.speed;
+        this.roadOffset = (this.roadOffset + dt * this.speed) % 100;
+
+        // Deceleration Logic: 15s to 5s remaining
+        let remaining = this.gameTime - this.timer;
+        if (remaining <= 15 && remaining > 5) {
+            let p = (remaining - 5) / 10; // 1.0 at 15s, 0.0 at 5s
+            this.speed = this.baseSpeed * p;
+        } else if (remaining <= 5) {
+            this.speed = 0;
+        }
+
+        this.spawnTimer -= dt;
+        // Stop spawning enemies as we slow down
+        if (this.spawnTimer <= 0 && remaining > 15) {
+            this.enemies.push(new DrivingEnemy(Math.random() < 0.6 ? 'duck' : 'cockroach'));
+            this.spawnTimer = 1.0 + Math.random() * 1.5;
+        }
+
+        this.enemies.forEach(e => e.update(dt));
+        this.enemies = this.enemies.filter(e => !e.fullyDead);
+        
+        let targetRot = 0;
+        if (isMobile) {
+            // Smooth autonomous steering for mobile
+            this.autopilotTimer -= dt;
+            if (this.autopilotTimer <= 0) {
+                this.autopilotTarget = (Math.random() - 0.5) * 1.4; // -0.7 to 0.7
+                this.autopilotTimer = 2.0 + Math.random() * 3.0; // Change target every 2-5s
+            }
+            this.autopilotAngle += (this.autopilotTarget - this.autopilotAngle) * dt * 1.0;
+            targetRot = this.autopilotAngle;
+        } else {
+            // Interactive wheel for desktop
+            targetRot = (currentAimX - canvas.width/2) / (canvas.width/2) * 0.7;
+        }
+        this.wheelRotation += (targetRot - this.wheelRotation) * dt * 5;
+        if (isNaN(this.wheelRotation)) this.wheelRotation = 0;
+
+        // Ammo Restock every 10s
+        this.ammoTimer -= dt;
+        if (this.ammoTimer <= 0) {
+            this.ammoTimer = 10;
+            gameState.ammo = 30; // Assuming 30 is max/standard
+            gameState.floatingTexts.push({
+                x: canvas.width/2,
+                y: canvas.height/2,
+                text: "AMMO RESTOCK",
+                life: 1.5,
+                maxLife: 1.5,
+                timer: 1.5,
+                color: "#00BFFF"
+            });
+        }
+
+        // Perk: BMW Steering Wheel
+        if (this.duckKills >= 10 && this.timer < this.gameTime && !this.isBMW) {
+            this.isBMW = true;
+            gameState.floatingTexts.push({
+                x: canvas.width/2,
+                y: canvas.height/2 - 50,
+                text: "BMW PERK UNLOCKED",
+                life: 2.0,
+                maxLife: 2.0,
+                timer: 2.0,
+                color: "#FFD700"
+            });
+        }
+
+        if (this.timer >= this.gameTime) {
+            gameState.drivingMode = null;
+            // Transition to Shadowy Figure screen instead of DOG
+            showShadowyScreen(gameState.round, false);
+        }
+    }
+
+    draw(ctx) {
+        // Only clear the ground area (below horizon)
+        let horizonY = canvas.height * 0.3;
+        ctx.fillStyle = '#222';
+        ctx.fillRect(0, horizonY, canvas.width, canvas.height - horizonY);
+
+        // --- Background Skyline (Endless Scrolling) ---
+        ctx.fillStyle = '#0a0a1a';
+        ctx.fillRect(0, 0, canvas.width, horizonY);
+        
+        let buildingLayerScale = 0.2;
+        let buildingSpacing = 100;
+        let scrollX = this.totalDistance * buildingLayerScale;
+        
+        ctx.fillStyle = '#1a1a2e';
+        for (let i = -5; i < (canvas.width / buildingSpacing) + 5; i++) {
+            let baseScreenX = i * buildingSpacing;
+            let bX = (baseScreenX - (scrollX % buildingSpacing));
+            let absIndex = Math.floor((scrollX + baseScreenX) / buildingSpacing);
+            
+            // Procedural properties based on absIndex
+            let heightSeed = Math.abs(Math.sin(absIndex * 1234.5));
+            let styleSeed = Math.abs(Math.cos(absIndex * 567.8));
+            let colorSeed = Math.abs(Math.sin(absIndex * 910.1));
+            
+            let bW = 70 + heightSeed * 30;
+            let bH = 60 + heightSeed * 100;
+            let style = Math.floor(styleSeed * 4); // 4 styles
+            
+            ctx.save();
+            // Vary building color slightly
+            let gray = 20 + Math.floor(colorSeed * 20);
+            ctx.fillStyle = `rgb(${gray}, ${gray}, ${gray + 10})`;
+            
+            // --- Draw Building Shape ---
+            if (style === 0) { // Flat
+                ctx.fillRect(bX, horizonY - bH, bW, bH);
+            } else if (style === 1) { // Peaked
+                ctx.fillRect(bX, horizonY - bH, bW, bH);
+                ctx.beginPath();
+                ctx.moveTo(bX, horizonY - bH);
+                ctx.lineTo(bX + bW/2, horizonY - bH - 30);
+                ctx.lineTo(bX + bW, horizonY - bH);
+                ctx.fill();
+            } else if (style === 2) { // Stepped
+                ctx.fillRect(bX, horizonY - bH, bW, bH);
+                ctx.fillRect(bX + bW*0.15, horizonY - bH - 20, bW*0.7, 20);
+                ctx.fillRect(bX + bW*0.3, horizonY - bH - 40, bW*0.4, 20);
+            } else { // Spired
+                ctx.fillRect(bX, horizonY - bH, bW, bH);
+                ctx.fillRect(bX + bW/2 - 2, horizonY - bH - 50, 4, 50); // Antenna/Spire
+            }
+
+            // --- Window Patterns ---
+            let winStyle = Math.floor(colorSeed * 4);
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = '#ffd700';
+            
+            if (winStyle === 0) { // Standard Grid
+                for (let w = 0; w < 4; w++) {
+                    for (let h = 0; h < 5; h++) {
+                        if (Math.sin(absIndex * 555 + w * 11 + h) > 0.3) {
+                            ctx.fillRect(bX + 10 + w * (bW/5), horizonY - bH + 10 + h * (bH/7), 6, 6);
+                        }
+                    }
+                }
+            } else if (winStyle === 1) { // Vertical Strips
+                for (let w = 0; w < 3; w++) {
+                    if (Math.sin(absIndex * 777 + w) > 0) {
+                        ctx.fillRect(bX + 15 + w * (bW/3.5), horizonY - bH + 10, 4, bH - 20);
+                    }
+                }
+            } else if (winStyle === 2) { // Horizontal Bands
+                for (let h = 0; h < 6; h++) {
+                    if (Math.cos(absIndex * 888 + h) > 0.4) {
+                        ctx.fillRect(bX + 5, horizonY - bH + 10 + h * (bH/8), bW - 10, 3);
+                    }
+                }
+            } else { // Scattered Lights
+                for (let k = 0; k < 12; k++) {
+                    let rx = Math.abs(Math.sin(absIndex * 999 + k)) * (bW - 10);
+                    let ry = Math.abs(Math.cos(absIndex * 111 + k)) * (bH - 10);
+                    if (Math.sin(absIndex + k) > 0.5) {
+                        ctx.fillRect(bX + 5 + rx, horizonY - bH + 5 + ry, 4, 4);
+                    }
+                }
+            }
+            ctx.restore();
+        }
+
+        // Perspective road with Bending
+        let bendFactor = this.wheelRotation * 150; // How much it bends
+        
+        ctx.fillStyle = '#111';
+        ctx.beginPath();
+        // Horizon points
+        let hLX = canvas.width * 0.45;
+        let hRX = canvas.width * 0.55;
+        ctx.moveTo(hLX, horizonY);
+        ctx.lineTo(hRX, horizonY);
+        // Bottom points (bent)
+        ctx.lineTo(canvas.width + 200 + bendFactor, canvas.height);
+        ctx.lineTo(-200 + bendFactor, canvas.height);
+        ctx.fill();
+
+        // Road stripes (Bent)
+        ctx.save();
+        ctx.strokeStyle = '#fff';
+        ctx.setLineDash([20, 60]);
+        ctx.lineDashOffset = -this.roadOffset;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, horizonY);
+        ctx.lineTo(canvas.width / 2 + bendFactor * 0.8, canvas.height); // Central stripe follows bend
+        ctx.stroke();
+        ctx.restore();
+
+        // Side lines (Bent)
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(hLX, horizonY);
+        ctx.lineTo(-200 + bendFactor, canvas.height);
+        ctx.moveTo(hRX, horizonY);
+        ctx.lineTo(canvas.width + 200 + bendFactor, canvas.height);
+        ctx.stroke();
+
+        // --- Liulin Sign Sequence (Appear at 6s) ---
+        let timeRemaining = this.gameTime - this.timer;
+        if (timeRemaining <= 6) {
+            // Sign starts at horizon and grows
+            // Time elapsed since 6s mark: 0 to 6
+            let elapsed = 6 - timeRemaining;
+            let progress = Math.min(1.0, elapsed / 5); // 0.0 at 6s, 1.0 at 1s
+            
+            ctx.save();
+            let signW = 120 * (progress * 4);
+            let signH = 80 * (progress * 4);
+            let signX = (canvas.width / 2 + (canvas.width * 0.4 * progress) + bendFactor * progress);
+            let signY = horizonY + (canvas.height * 0.4) * (progress * progress);
+            
+            // White background sign with gray border
+            ctx.fillStyle = '#eee';
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 4 * (1 + progress);
+            ctx.fillRect(signX, signY - signH, signW, signH);
+            ctx.strokeRect(signX, signY - signH, signW, signH);
+            
+            // Lettering
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.font = `bold ${14 * (1 + progress * 2)}px 'Courier New', monospace`;
+            ctx.fillText("WELCOME TO", signX + signW/2, signY - signH * 0.6);
+            ctx.fillText("LIULIN", signX + signW/2, signY - signH * 0.3);
+            
+            // Sign post
+            ctx.fillStyle = '#888';
+            ctx.fillRect(signX + signW/4, signY, 8 * (1 + progress), signH * 0.5);
+            ctx.restore();
+        }
+
+        // Enemies (Drawn before the cockpit)
+        this.enemies.forEach(e => e.draw(ctx));
+
+        // --- Countdown Timer (MM:SS) ---
+        let timerRemaining = Math.max(0, this.gameTime - this.timer);
+        let mins = Math.floor(timerRemaining / 60);
+        let secs = Math.floor(timerRemaining % 60);
+        let timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
+        
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 24px 'Courier New', monospace";
+        ctx.shadowColor = "#000";
+        ctx.shadowBlur = 4;
+        ctx.textAlign = "left";
+        // Position below the Sun (Sun center at 40, radius 20, so 60 is bottom of sun)
+        ctx.fillText(timeStr, 20, 85); 
+        ctx.restore();
+    }
+
+    drawOver(ctx) {
+        ctx.save();
+        
+        let dashboardBottomY = canvas.height;
+        let dashboardTopY = canvas.height * 0.7; // 30% dash height
+        let dashH = dashboardBottomY - dashboardTopY;
+
+        // --- Calculate Dashboard Dimensions ---
+        let baseW = canvas.width * 0.7; // 70% width target
+        let aspectRatio = carCockpitImg.height / carCockpitImg.width;
+        let baseH = baseW * aspectRatio;
+        
+        let scale = dashH / (baseH * 0.5);
+        let finalW = baseW * scale;
+        let finalH = baseH * scale;
+        let finalX = (canvas.width - finalW) / 2;
+        let finalY = canvas.height - finalH;
+
+        // --- Apply Rounded UI Clip (10px radius) to the entire visible strip ---
+        ctx.save();
+        let radius = 10;
+        ctx.beginPath();
+        ctx.moveTo(radius, dashboardTopY);
+        ctx.lineTo(canvas.width - radius, dashboardTopY);
+        ctx.quadraticCurveTo(canvas.width, dashboardTopY, canvas.width, dashboardTopY + radius);
+        ctx.lineTo(canvas.width, canvas.height); // No rounding at bottom
+        ctx.lineTo(0, canvas.height);
+        ctx.lineTo(0, dashboardTopY + radius);
+        ctx.quadraticCurveTo(0, dashboardTopY, radius, dashboardTopY);
+        ctx.closePath();
+        ctx.clip();
+
+        // --- Fill Side Gaps with Door Panels ---
+        let doorW = finalX * 2.2; 
+        let doorL = processedDoorLeft || doorPanelLeftImg;
+        let doorR = processedDoorRight || doorPanelRightImg;
+        
+        if (!doorL.complete || !doorR.complete) {
+            ctx.fillStyle = "#4a3c31"; 
+            ctx.fillRect(0, dashboardTopY, finalX, dashH);
+            ctx.fillRect(canvas.width - finalX, dashboardTopY, finalX, dashH);
+        }
+        
+        ctx.drawImage(doorL, 0, dashboardTopY, doorW, dashH);
+        ctx.drawImage(doorR, canvas.width - doorW, dashboardTopY, doorW, dashH);
+
+        // --- Draw Dashboard ---
+        let cockpit = processedCockpit || carCockpitImg;
+        ctx.drawImage(cockpit, finalX, finalY, finalW, finalH);
+        
+        ctx.restore(); // End of interior clipping
+
+        // --- Draw Wheel ---
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height - (dashH * 0.6)); 
+        ctx.rotate(this.wheelRotation);
+        let wheelS = dashH * 1.6; 
+        let wheel = processedWheel || steeringWheelImg;
+        if (this.isBMW) wheel = processedBmwWheel || steeringWheelBmwImg;
+        if (wheel && wheel.width > 0 && !isNaN(this.wheelRotation)) {
+            ctx.drawImage(wheel, -wheelS/2, -wheelS/2, wheelS, wheelS);
+        }
+        ctx.restore();
         ctx.restore();
     }
 }
@@ -1596,10 +2177,15 @@ class PoopProjectile {
         this.particles = this.particles.filter(p => p.life > 0);
 
         if (this.timer >= this.maxTimer) {
-            gameState.lives--;
+            if (gameState.drivingMode) {
+                triggerDrivingPenalty();
+            } else {
+                gameState.lives--;
+                gameState.redFlashTimer = 0.5;
+                gameState.shakeTimer = 0.5;
+                updateUI();
+            }
             gameState.ammo = 12;
-            gameState.redFlashTimer = 0.5;
-            gameState.shakeTimer = 0.5;
             if (gameState.boss) {
                 gameState.boss.expression = 'SNICKERING';
                 gameState.boss.snickerTimer = 2.0;
@@ -2225,10 +2811,15 @@ class BossProjectile {
 
         if (this.timer >= this.maxTimer) {
             // Impact player
-            gameState.lives--;
+            if (gameState.drivingMode) {
+                triggerDrivingPenalty();
+            } else {
+                gameState.lives--;
+                gameState.redFlashTimer = 0.5;
+                gameState.shakeTimer = 0.5;
+                updateUI();
+            }
             gameState.ammo = 12; // Fresh full ammo recharge on hit
-            gameState.redFlashTimer = 0.5;
-            gameState.shakeTimer = 0.5;
             if (gameState.boss) {
                 gameState.boss.expression = 'SNICKERING';
                 gameState.boss.snickerTimer = 2.0;
@@ -2973,7 +3564,7 @@ class SeekingMissile {
     }
 }
 class Projectile {
-    constructor(startX, startY, targetX, targetY, targetDuck, hitSun, targetAirplane = null, targetTiger = null, targetEagle = null, isGreen = false, targetBomber = null, hitDetails = null) {
+    constructor(startX, startY, targetX, targetY, targetDuck, hitSun, targetAirplane = null, targetTiger = null, targetEagle = null, isGreen = false, targetBomber = null, hitDetails = null, targetDrivingEnemy = null) {
         this.startX = startX;
         this.startY = startY;
         this.targetX = targetX;
@@ -2983,6 +3574,7 @@ class Projectile {
         this.targetTiger = targetTiger;
         this.targetEagle = targetEagle;
         this.targetBomber = targetBomber;
+        this.targetDrivingEnemy = targetDrivingEnemy;
         this.hitDetails = hitDetails;
         this.isGreen = isGreen;
         this.hitSun = hitSun;
@@ -3019,7 +3611,7 @@ class Projectile {
         let currentY = this.startY + (this.targetY - this.startY) * t;
 
         // Triple shots uniquely check for collisions dynamically while flying
-        if (this.isGreen && !this.targetDuck && !this.targetAirplane && !this.targetTiger && !this.targetEagle && !this.hitSun) {
+        if (this.isGreen && !this.targetDuck && !this.targetAirplane && !this.targetTiger && !this.targetEagle && !this.hitSun && !this.targetDrivingEnemy) {
             for (let i = gameState.ducks.length - 1; i >= 0; i--) {
                 const duck = gameState.ducks[i];
                 if (!duck.isDead && !duck.isTargeted &&
@@ -3044,7 +3636,7 @@ class Projectile {
     }
 
     impact() {
-        if (this.hitSun || (this.targetDuck && !this.targetDuck.isDead) || (this.targetAirplane && !this.targetAirplane.isDead) || (this.targetTiger && !this.targetTiger.isDead) || (this.targetEagle && !this.targetEagle.isDead) || (this.targetBomber && !this.targetBomber.isDead)) {
+        if (this.hitSun || (this.targetDuck && !this.targetDuck.isDead) || (this.targetAirplane && !this.targetAirplane.isDead) || (this.targetTiger && !this.targetTiger.isDead) || (this.targetEagle && !this.targetEagle.isDead) || (this.targetBomber && !this.targetBomber.isDead) || (this.targetDrivingEnemy && !this.targetDrivingEnemy.isDead)) {
             flashScreen(); // Impact flash ONLY on hits!
         }
 
@@ -3110,6 +3702,11 @@ class Projectile {
                     playQuack(duck.level);
                 }
             });
+            updateUI();
+        }
+
+        if (this.targetDrivingEnemy && !this.targetDrivingEnemy.isDead) {
+            this.targetDrivingEnemy.die();
             updateUI();
         }
 
@@ -3573,6 +4170,18 @@ function handleShoot(event) {
         let isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
         let bopY = isRadioActive ? Math.sin(performance.now() / 150) * 4 : 0;
         let hitDetails = null;
+        let hitDrivingEnemy = null;
+
+        if (gameState.drivingMode) {
+            for (let i = gameState.drivingMode.enemies.length - 1; i >= 0; i--) {
+                const enemy = gameState.drivingMode.enemies[i];
+                if (!enemy.isDead && Math.abs(currentX - enemy.x) <= enemy.size / 2 + 10 &&
+                    Math.abs(currentY - enemy.y) <= enemy.size / 2 + 10) {
+                    hitDrivingEnemy = enemy;
+                    break;
+                }
+            }
+        }
 
         if (currentLevel >= 4 && Math.abs(currentX - 40) <= 30 && Math.abs(currentY - (40 + bopY)) <= 30) {
             hitSun = true;
@@ -3763,7 +4372,7 @@ function handleShoot(event) {
             }
         }
 
-        gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber, hitDetails));
+        gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber, hitDetails, hitDrivingEnemy));
     });
 
     gameState.ammo--;
@@ -3900,6 +4509,11 @@ window.addEventListener('keydown', (e) => {
             gameState.round = 24;
             gameState.phase = 'SPAWN';
             if (gameState.boss) gameState.boss = null;
+            return;
+        }
+        if (e.code === 'Digit3') {
+            gameState.round = 33;
+            gameState.drivingMode = new DrivingMode();
             return;
         }
     }
@@ -4532,6 +5146,17 @@ function gameLoop(timestamp) {
     if (isNaN(dt)) dt = 0; // Handle first frame
     if (dt > 0.1) dt = 0.1; // Cap dt to avoid huge jumps
     gameState.lastTime = timestamp;
+    
+    // Driving Mode Update & Draw (Overwrites standard background)
+    if (gameState.drivingMode) {
+        gameState.drivingMode.update(dt);
+    }
+
+    // Update splatters
+    if (gameState.splatters) {
+        gameState.splatters.forEach(s => s.update(dt));
+        gameState.splatters = gameState.splatters.filter(s => s.life > 0);
+    }
 
     if (gameState.victoryTimer > 0) {
         let prevTimer = gameState.victoryTimer;
@@ -4621,21 +5246,23 @@ function gameLoop(timestamp) {
     let currentLevel = Math.min(5, Math.floor(gameState.killCount / 10) + 1);
 
     // Retro 8-bit Banded Sky (Posterized transitions)
-    let topL = 68;
-    let botL = 85; 
-    if (gameState.round >= 60) { topL -= 25; botL -= 20; }
-    else if (gameState.round >= 30) { topL -= 12; botL -= 10; }
+    {
+        let topL = 68;
+        let botL = 85; 
+        if (gameState.round >= 60) { topL -= 25; botL -= 20; }
+        else if (gameState.round >= 30) { topL -= 12; botL -= 10; }
 
-    const numBands = 6;
-    const bandHeight = (canvas.height * 0.7) / numBands;
-    for (let i = 0; i < numBands; i++) {
-        let t = i / (numBands - 1);
-        let currentL = topL + (botL - topL) * t;
-        ctx.fillStyle = `hsl(207, 90%, ${currentL}%)`;
-        ctx.fillRect(0, i * bandHeight, canvas.width, bandHeight + 1);
+        const numBands = 6;
+        const bandHeight = (canvas.height * 0.7) / numBands;
+        for (let i = 0; i < numBands; i++) {
+            let t = i / (numBands - 1);
+            let currentL = topL + (botL - topL) * t;
+            ctx.fillStyle = `hsl(207, 90%, ${currentL}%)`;
+            ctx.fillRect(0, i * bandHeight, canvas.width, bandHeight + 1);
+        }
+        // Fill the rest (grass area underneath)
+        ctx.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3);
     }
-    // Fill the rest (grass area underneath)
-    ctx.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3);
 
     // Apply Screen Shake for the game world
     let isShaking = gameState.shakeTimer > 0;
@@ -4700,8 +5327,8 @@ function gameLoop(timestamp) {
         }
     }
 
-    // Draw Sun at Level >= 4
-    if (currentLevel >= 4) {
+    // Draw Sun at Level >= 4 (Suppressed during drivingMode as it's drawn later for layering)
+    if (currentLevel >= 4 && !gameState.drivingMode) {
         let isRadioActive = gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled';
         
         // Bopping animation if radio is active
@@ -4985,6 +5612,68 @@ function gameLoop(timestamp) {
     }
 
     let effectiveDt = (gameState.victoryTimer > 0) ? 0 : dt;
+    
+    // --- Driving Mode World Draw (Overlays sky/clouds, below targets) ---
+    if (gameState.drivingMode) {
+        gameState.drivingMode.draw(ctx);
+    }
+
+    // --- Draw Sun (Must be visible during driving) ---
+    if (true) { // Re-rendering sun logic here
+        let bopY = 0;
+        if (gameState.settings.radioStation && gameState.settings.radioStation !== 'Disabled') {
+            bopY = Math.sin(performance.now() / 150) * 4;
+        }
+
+        ctx.save();
+        let sunX = 40;
+        let sunY = 40 + bopY;
+        let sunRadius = 20;
+
+        let redPercent = Math.min(100, (gameState.round - 1) * 5);
+        let g = Math.floor(235 * (1 - redPercent / 100));
+        let b = Math.floor(59 * (1 - redPercent / 100));
+        ctx.fillStyle = `rgb(255, ${g}, ${b})`;
+
+        let pSize = 2;
+        for (let y = -sunRadius; y <= sunRadius; y += pSize) {
+            for (let x = -sunRadius; x <= sunRadius; x += pSize) {
+                if (x * x + y * y <= sunRadius * sunRadius) {
+                    ctx.fillRect(sunX + x, sunY + y, pSize, pSize);
+                }
+            }
+        }
+
+        ctx.fillStyle = "black";
+        ctx.fillRect(sunX - 14, sunY - 8, 12, 8); 
+        if (gameState.isSunWinking) {
+            ctx.fillStyle = `rgb(255, ${g}, ${b})`;
+            ctx.fillRect(sunX + 2, sunY - 8, 12, 8);
+            ctx.fillStyle = "black";
+            ctx.fillRect(sunX + 2, sunY - 2, 12, 2);
+        } else {
+            ctx.fillRect(sunX + 2, sunY - 8, 12, 8);
+        }
+        ctx.fillRect(sunX - 2, sunY - 6, 4, 2);
+        ctx.fillRect(sunX - 20, sunY - 6, 6, 2);
+        ctx.fillRect(sunX + 14, sunY - 6, 6, 2);
+        ctx.fillStyle = `rgb(255, ${g}, ${b})`;
+        ctx.fillRect(sunX - 14, sunY, 2, 2);
+        ctx.fillRect(sunX - 4, sunY, 2, 2);
+        if (!gameState.isSunWinking) {
+            ctx.fillRect(sunX + 2, sunY, 2, 2);
+            ctx.fillRect(sunX + 12, sunY, 2, 2);
+        }
+        ctx.fillStyle = "white";
+        ctx.fillRect(sunX - 12, sunY - 6, 2, 2);
+        ctx.fillRect(sunX + 4, sunY - 6, 2, 2);
+        ctx.fillStyle = "black";
+        ctx.fillRect(sunX - 6, sunY + 6, 12, 2);
+        ctx.fillRect(sunX - 8, sunY + 4, 2, 2);
+        ctx.fillRect(sunX + 6, sunY + 4, 2, 2);
+        ctx.restore();
+    }
+
 
     // Update & Draw Airplanes
     gameState.airplanes.forEach(plane => {
@@ -5016,11 +5705,14 @@ function gameLoop(timestamp) {
         // If duck flies off the top of the canvas, it escaped!
         if (!duck.isDead && duck.y < -150) {
             gameState.escapedThisRound++;
-            gameState.lives--;
-            updateUI();
-
-            if (gameState.lives <= 0 && gameState.phase !== 'GAME_OVER') {
-                triggerGameOver();
+            if (gameState.drivingMode) {
+                triggerDrivingPenalty();
+            } else {
+                gameState.lives--;
+                updateUI();
+                if (gameState.lives <= 0 && gameState.phase !== 'GAME_OVER') {
+                    triggerGameOver();
+                }
             }
             return false;
         }
@@ -5135,7 +5827,7 @@ function gameLoop(timestamp) {
             }
         }
 
-        if (gameState.ducks.length === 0 && (!gameState.boss || gameState.boss.fullyDead)) {
+        if (gameState.ducks.length === 0 && (!gameState.boss || gameState.boss.fullyDead) && !gameState.drivingMode) {
             gameState.phase = 'DOG';
             gameState.timer = 2.5; // Dog animation takes 2.5 seconds
             gameState.dogQuote = motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)];
@@ -5166,6 +5858,9 @@ function gameLoop(timestamp) {
                 let isNewUnlockRecord = (finishedRound >= gameState.maxRoundReached);
                 
                 gameState.round++;
+                if (gameState.round === 33) {
+                    gameState.drivingMode = new DrivingMode();
+                }
                 updateBuildingConditions(); // Apply aging/damage each round
                 
                 // Gain more random permanent clouds every 5th level
@@ -5325,7 +6020,7 @@ function gameLoop(timestamp) {
 
     // Draw background hills (behind buildings)
     let grassLevel = canvas.height - (canvas.height * 0.12);    // Draw hills with Parallax
-    if (gameState.hills) {
+    if (gameState.hills && !gameState.drivingMode) {
         // Sort by layer so far hills are behind
         [...gameState.hills].sort((a,b) => a.layer - b.layer).forEach(h => {
              let hBaseY = grassLevel;
@@ -5406,7 +6101,7 @@ function gameLoop(timestamp) {
     gameState.hillAnimals = gameState.hillAnimals.filter(a => !a.isDead);
 
     // Draw background buildings (skyline) with 3D depth
-    if (gameState.buildings) {
+    if (gameState.buildings && !gameState.drivingMode) {
         // Sort by layer
         [...gameState.buildings].sort((a,b) => a.layer - b.layer).forEach(b => {
             let bY = Math.floor(grassLevel - b.height + 5); 
@@ -5594,24 +6289,27 @@ function gameLoop(timestamp) {
     // Draw Perspective Ground (Trapezoidal grid floor)
     const season = getSeasonData(gameState.round);
     let horizonY = grassLevel;
-    let groundH = canvas.height - horizonY;
-    
-    // Draw base floor
-    ctx.fillStyle = season.grass;
-    ctx.fillRect(0, horizonY, canvas.width, groundH);
-    
-    if (gameState.perspectiveMode) {
-        // Draw Perspective Lines (Geometric floor depth)
-        ctx.strokeStyle = '#144317';
-        ctx.lineWidth = 1;
+
+    if (!gameState.drivingMode) {
+        let groundH = canvas.height - horizonY;
         
-        // Horizontal perspective lines (Subtle depth)
-        for (let j = 0; j <= 10; j++) {
-            let yLine = horizonY + (groundH * Math.pow(j/10, 2)); // Exponential spacing for depth
-            ctx.beginPath();
-            ctx.moveTo(0, yLine);
-            ctx.lineTo(canvas.width, yLine);
-            ctx.stroke();
+        // Draw base floor
+        ctx.fillStyle = season.grass;
+        ctx.fillRect(0, horizonY, canvas.width, groundH);
+        
+        if (gameState.perspectiveMode) {
+            // Draw Perspective Lines (Geometric floor depth)
+            ctx.strokeStyle = '#144317';
+            ctx.lineWidth = 1;
+            
+            // Horizontal perspective lines (Subtle depth)
+            for (let j = 0; j <= 10; j++) {
+                let yLine = horizonY + (groundH * Math.pow(j/10, 2)); // Exponential spacing for depth
+                ctx.beginPath();
+                ctx.moveTo(0, yLine);
+                ctx.lineTo(canvas.width, yLine);
+                ctx.stroke();
+            }
         }
     }
 
@@ -5640,7 +6338,7 @@ function gameLoop(timestamp) {
     ctx.stroke();
 
     // Update & Draw Cars (drawn over background buildings and grass)
-    if (gameState.cars) {
+    if (gameState.cars && !gameState.drivingMode) {
         gameState.cars.forEach(car => {
             car.update(dt);
             car.draw(ctx);
@@ -5648,18 +6346,22 @@ function gameLoop(timestamp) {
     }
 
     // Update & Draw Eagles (drawn over background buildings and grass)
-    gameState.eagles.forEach(eagle => {
-        eagle.update(dt);
-        eagle.draw(ctx);
-    });
-    gameState.eagles = gameState.eagles.filter(eagle => eagle.y < canvas.height + 100 && eagle.y > -200);
+    if (!gameState.drivingMode) {
+        gameState.eagles.forEach(eagle => {
+            eagle.update(dt);
+            eagle.draw(ctx);
+        });
+        gameState.eagles = gameState.eagles.filter(eagle => eagle.y < canvas.height + 100 && eagle.y > -200);
+    }
 
     // Update & Draw Hotdogs
-    gameState.hotdogs.forEach(h => {
-        h.update(dt);
-        h.draw(ctx);
-    });
-    gameState.hotdogs = gameState.hotdogs.filter(h => h.y < canvas.height + 100 && h.y > -200);
+    if (!gameState.drivingMode) {
+        gameState.hotdogs.forEach(h => {
+            h.update(dt);
+            h.draw(ctx);
+        });
+        gameState.hotdogs = gameState.hotdogs.filter(h => h.y < canvas.height + 100 && h.y > -200);
+    }
 
     // Update & Draw Seeking Missiles
     gameState.seekingMissiles.forEach(m => {
@@ -5688,11 +6390,13 @@ function gameLoop(timestamp) {
     gameState.projectiles = gameState.projectiles.filter(p => !p.fullyDead);
 
     // Update & Draw Stick Figures
-    gameState.stickFigures.forEach(sf => {
-        sf.update(dt);
-        sf.draw(ctx);
-    });
-    gameState.stickFigures = gameState.stickFigures.filter(sf => !sf.isDead);
+    if (!gameState.drivingMode) {
+        gameState.stickFigures.forEach(sf => {
+            sf.update(dt);
+            sf.draw(ctx);
+        });
+        gameState.stickFigures = gameState.stickFigures.filter(sf => !sf.isDead);
+    }
 
     // Draw Screen Flash
     if (flashFrames > 0) {
@@ -5819,7 +6523,17 @@ function gameLoop(timestamp) {
     // Smoothly track current aim regardless of firing (Active HUD tracking)
     currentAimAngle = Math.atan2(currentAimY - gunY, currentAimX - gunX) + Math.PI / 2;
 
-    drawWeapon(ctx, gunX, gunY, currentAimAngle, gameState.character, gameState.round >= 30, gameState.powerUpActive, dSize, timestamp);
+    // --- Draw Driving Mode Overlay ---
+    if (gameState.drivingMode) {
+        gameState.drivingMode.drawOver(ctx);
+    } else {
+        drawWeapon(ctx, gunX, gunY, currentAimAngle, gameState.character, gameState.round >= 30, gameState.powerUpActive, dSize, timestamp);
+    }
+
+    // --- Draw Splatters (Top layer) ---
+    if (gameState.splatters) {
+        gameState.splatters.forEach(s => s.draw(ctx));
+    }
 
     // --- Draw Floating Texts (ON TOP OF EVERYTHING) ---
     gameState.floatingTexts.forEach(ft => {
