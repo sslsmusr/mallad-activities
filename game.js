@@ -56,7 +56,7 @@ const scoreDisplay = document.getElementById('score-display');
 const ammoDisplay = document.getElementById('ammo-display');
 
 // Cache version for all assets
-const CACHE_VERSION = 58;
+const CACHE_VERSION = 70;
 
 // Load Assets
 const duckImg1 = new Image();
@@ -557,7 +557,20 @@ let gameState = {
     hillSnapshot: JSON.parse(localStorage.getItem('mallard_hills') || '[]'),
     blessingRounds: 0,
     mirrorRounds: 0,
+    molassesRounds: 0,
+    hollowRounds: 0,
+    deadeyeRounds: 0,
+    splashRounds: 0,
+    scavRounds: 0,
+    stunRounds: 0,
+    freeShots: 0,
+    ammoRainRounds: 0,
+    ammoRainTimer: 0,
     perspectiveMode: false,
+    ultraHD: false,
+    slayMode: false,
+    tpsMode: false,
+    player: null,
     stickFigures: [],
     lastStickFigureCheck: 0,
     hillAnimals: [],
@@ -570,6 +583,7 @@ let gameState = {
     drivingMode: null,
     splatters: [],
     feedPiles: [],
+    crates: [],
     thunderTimer: Math.random() * 5,
     thunderFlash: 0,
     introDuck: {
@@ -625,7 +639,19 @@ function resetGameState() {
     gameState.drivingMode = null;
     gameState.splatters = [];
     gameState.feedPiles = [];
+    gameState.crates = [];
+    gameState.tpsMode = false;
+    gameState.player = null;
     gameState.mirrorRounds = 0;
+    gameState.molassesRounds = 0;
+    gameState.hollowRounds = 0;
+    gameState.deadeyeRounds = 0;
+    gameState.splashRounds = 0;
+    gameState.scavRounds = 0;
+    gameState.stunRounds = 0;
+    gameState.freeShots = 0;
+    gameState.ammoRainRounds = 0;
+    gameState.ammoRainTimer = 0;
     gameState.boss = null;
     gameState.bossProjectiles = [];
     gameState.heavyBombers = [];
@@ -741,6 +767,9 @@ const buyLifeBtn = document.getElementById('buy-life');
 const buyBlessingBtn = document.getElementById('buy-blessing');
 const buySkipBtn = document.getElementById('buy-skip');
 const buyMirrorBtn = document.getElementById('buy-mirror');
+const buyMolassesBtn = document.getElementById('buy-molasses');
+const buyHollowBtn = document.getElementById('buy-hollow');
+const buyDeadeyeBtn = document.getElementById('buy-deadeye');
 const vendingContinueBtn = document.getElementById('vending-continue');
 
 const almanachScreen = document.getElementById('almanach-screen');
@@ -932,6 +961,16 @@ class Duck {
         // Custom Death Animations
         this.deathType = null;
         this.deathTimer = 0;
+
+        // Golden Egg: rare prized duck (x3 points) that bolts upward after a moment
+        this.golden = !isSplit && Math.random() < 0.03;
+        this.goldTimer = 2.5;
+        this.fleeing = false;
+
+        // Flight path variety
+        this.waveT = Math.random() * Math.PI * 2; // sine bobbing phase
+        this.swoopT = 0;                          // remaining U-dive time
+        this.swoopVy = 0;                         // vy to restore after the swoop
     }
 
     die(charId) {
@@ -981,16 +1020,32 @@ class Duck {
 
     update(dt) {
         if (!this.isDead) {
+            // Molasses: ducks fly at half speed
+            dt *= (gameState.molassesRounds > 0 ? 0.5 : 1);
+            // Golden Egg: after a moment the prized duck bolts for the sky
+            if (this.golden && !this.fleeing) {
+                this.goldTimer -= dt;
+                if (this.goldTimer <= 0) {
+                    this.fleeing = true;
+                    this.vy = -380 * this.speedMult;
+                    this.vx *= 0.4;
+                }
+            }
             // Quake Feed: dive to a spilled feed pile and freeze while eating it
             if (this.feedTarget) {
                 const pile = this.feedTarget;
                 if (pile.eaten || pile.y < pile.groundY) {
                     this.feedTarget = null;
                 } else {
-                    const tx = pile.x - this.width / 2;
-                    const ty = pile.y - this.height / 2;
-                    this.x += Math.max(-160 * dt, Math.min(160 * dt, tx - this.x));
-                    this.y += Math.max(-160 * dt, Math.min(160 * dt, ty - this.y));
+                    // Target clamped into reachable space: a wide duck can never align
+                    // with a pile near the screen edge, and an unclamped target would
+                    // park it at the wall forever (stuck sliding on the ground)
+                    const tx = Math.max(0, Math.min(canvas.width - this.width, pile.x - this.width / 2));
+                    // Perch with the belly over the pile instead of sliding to its center
+                    const ty = Math.max(0, pile.y + 8 - this.height);
+                    // 5x glide speed: the bottom phase is brief by design
+                    this.x += Math.max(-800 * dt, Math.min(800 * dt, tx - this.x));
+                    this.y += Math.max(-800 * dt, Math.min(800 * dt, ty - this.y));
                     this.x = Math.max(0, Math.min(canvas.width - this.width, this.x));
                     if (Math.abs(tx - this.x) < 8 && Math.abs(ty - this.y) < 8) {
                         this.feedTimer -= dt;
@@ -1002,8 +1057,23 @@ class Duck {
                     return; // Feeding ducks don't fly or escape
                 }
             }
+            // Swoop: occasional U-shaped dive toward the grass and back up
+            if (this.swoopT > 0) {
+                this.swoopT -= dt;
+                const p = 1 - Math.max(0, this.swoopT) / 1.2;
+                this.vy = -180 + 480 * Math.sin(p * Math.PI); // up -> down -> up
+                if (this.swoopT <= 0) this.vy = this.swoopVy;
+            } else if (!this.golden && !this.fleeing && Math.random() < 0.2 * dt) {
+                this.swoopVy = this.vy;
+                this.swoopT = 1.2;
+            }
+
             this.x += this.vx * dt;
             this.y += this.vy * dt;
+
+            // Gentle sine-wave bobbing so flight never reads as a straight line
+            this.waveT += dt * 2;
+            this.y += Math.sin(this.waveT) * 40 * dt;
 
             // Occasional zig-zag (1.5% chance per frame)
             if (Math.random() < 0.015 && this.y > 100) {
@@ -1018,6 +1088,19 @@ class Duck {
             // Bounce off walls with perspective adjusted bounds
             if (this.x <= 0 || this.x + this.width >= canvas.width) {
                 this.vx *= -1;
+            }
+
+            // Bounce off the grass instead of sliding along it
+            const groundY = canvas.height - (canvas.height * 0.12);
+            if (this.y + this.height > groundY) {
+                this.y = groundY - this.height;
+                if (this.swoopT > 0) {
+                    // Mid-swoop ground hit = a real bounce, abort the dive's descent
+                    this.swoopT = 0;
+                    this.vy = -Math.max(150, Math.abs(this.vy));
+                } else if (this.vy > 0) {
+                    this.vy = -Math.max(120, Math.abs(this.vy));
+                }
             }
         } else {
             if (this.deathTimer > 0) {
@@ -1050,6 +1133,11 @@ class Duck {
     }
 
     draw(ctx) {
+        // Ultra 3D-HD mode: polished pseudo-3D duck with layered lighting (mock RTX)
+        if (!this.isDead && gameState.ultraHD) {
+            this.drawUltra(ctx);
+            return;
+        }
         if (this.isDead) {
             if (this.deathTimer > 0) {
                 if (this.deathType === 'electric') {
@@ -1138,7 +1226,9 @@ class Duck {
             ctx.globalAlpha = 1.0;
         }
 
-        if (this.level === 2) {
+        if (this.golden && !this.isDead) {
+            ctx.filter = 'sepia(1) saturate(5) hue-rotate(10deg) brightness(1.4)'; // Gold
+        } else if (this.level === 2) {
             ctx.filter = 'sepia(1) hue-rotate(-50deg) saturate(2)'; // Level 2 colors
         } else if (this.level === 3) {
             ctx.filter = 'sepia(1) hue-rotate(-50deg) saturate(4) brightness(0.7)'; // Level 3 colors
@@ -1147,8 +1237,286 @@ class Duck {
         ctx.drawImage(currentDuckImg, -this.width / 2, -this.height / 2, this.width, this.height);
         ctx.filter = 'none';
 
+        if (gameState.slayMode) this.drawGlam(ctx, performance.now() / 1000);
+
         ctx.restore();
     }
+
+    // Ultra 3D-HD: pseudo-3D duck — bloom, extruded volume, silhouette-masked key light,
+    // sky reflection, specular sweep and rim glow. Pure canvas, no real 3D.
+    drawUltra(ctx) {
+        const w = this.width, h = this.height;
+        const cx = this.x + w / 2, cy = this.y + h / 2;
+        const t = performance.now() / 1000;
+        const img = (Math.floor(t * 5) % 2 === 0) ? duckImg1 : duckImg2;
+        const grassY = canvas.height - canvas.height * 0.12;
+        const gold = !!this.golden;
+
+        // Contact shadow projected onto the grass, fading with altitude
+        const alt = Math.max(0, Math.min(1, (grassY - (this.y + h)) / 300));
+        ctx.save();
+        ctx.globalAlpha = 0.35 * (1 - alt);
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.ellipse(cx, grassY - 4, w * 0.35, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (this.vx < 0) ctx.scale(-1, 1);
+
+        // Bloom halo (fake global illumination)
+        ctx.save();
+        ctx.shadowColor = gold ? 'rgba(255,215,0,0.95)' : 'rgba(110,220,255,0.85)';
+        ctx.shadowBlur = 28 * this.z;
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+
+        // Rim light: glow peeking above the silhouette
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.shadowColor = gold ? 'rgba(255,220,120,0.9)' : 'rgba(190,240,255,0.9)';
+        ctx.shadowBlur = 10 * this.z;
+        ctx.shadowOffsetY = -3 * this.z;
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+
+        // Extruded layers: fake 3D volume trailing down-right
+        for (let i = 4; i >= 1; i--) {
+            ctx.globalAlpha = 0.4;
+            ctx.filter = 'brightness(' + (0.25 + i * 0.15) + ')';
+            ctx.drawImage(img, -w / 2 + i * 2 * this.z, -h / 2 + i * 2 * this.z, w, h);
+        }
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1;
+
+        // Lit body: gradients masked to the duck silhouette via the scratch canvas
+        const sw = Math.max(1, Math.ceil(w)), sh = Math.max(1, Math.ceil(h));
+        const sctx = getUltraScratch(sw, sh);
+        sctx.drawImage(img, 0, 0, sw, sh);
+        sctx.globalCompositeOperation = 'source-in';
+        const key = sctx.createLinearGradient(0, 0, 0, sh);
+        key.addColorStop(0, gold ? 'rgba(255,240,180,0.5)' : 'rgba(255,255,255,0.4)');
+        key.addColorStop(0.45, 'rgba(255,255,255,0)');
+        key.addColorStop(1, 'rgba(120,190,255,0.25)');
+        sctx.fillStyle = key;
+        sctx.fillRect(0, 0, sw, sh);
+        sctx.globalCompositeOperation = 'source-atop';
+        // Specular sweep (the "ray tracing" money shot)
+        const sweep = ((t * 0.6) + this.waveT) % 1.6 - 0.3;
+        const sx = sweep * sw;
+        const spec = sctx.createLinearGradient(sx - 12, 0, sx + 12, 0);
+        spec.addColorStop(0, 'rgba(255,255,255,0)');
+        spec.addColorStop(0.5, gold ? 'rgba(255,240,180,0.55)' : 'rgba(255,255,255,0.4)');
+        spec.addColorStop(1, 'rgba(255,255,255,0)');
+        sctx.fillStyle = spec;
+        sctx.fillRect(0, 0, sw, sh);
+        sctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(ultraScratch, -w / 2, -h / 2, w, h);
+
+        if (gameState.slayMode) this.drawGlam(ctx, t);
+
+        ctx.restore();
+    }
+
+    // Slay Bestie mode: perms, big glossy red lips, lashes, blush, glitter. Yaas.
+    drawGlam(ctx, t) {
+        const s = this.width / 80; // scale with duck size
+        const bob = Math.sin(t * 3 + this.waveT) * 2 * s;
+
+        // Big curly perm — a proud cloud of puffs
+        const puffs = [
+            [-18, -52, 14], [0, -56, 16], [18, -52, 14],
+            [-30, -38, 12], [30, -38, 12],
+            [-36, -22, 9], [36, -22, 9],
+            [-38, -8, 7], [38, -8, 7]
+        ];
+        ctx.fillStyle = '#d94fb0';
+        puffs.forEach(([px, py, r]) => {
+            ctx.beginPath();
+            ctx.arc(px * s, py * s + bob, r * s, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.fillStyle = '#ff5ec7';
+        puffs.forEach(([px, py, r], i) => {
+            if (i % 2) return;
+            ctx.beginPath();
+            ctx.arc(px * s - r * 0.2 * s, py * s - r * 0.3 * s + bob, r * 0.55 * s, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // Big glossy red lips
+        const lx = 34 * s, ly = 4 * s;
+        ctx.fillStyle = '#e0115f';
+        ctx.beginPath(); ctx.ellipse(lx, ly - 3 * s, 13 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(lx, ly + 5 * s, 15 * s, 6 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#8e0b3f';
+        ctx.fillRect(lx - 12 * s, ly + 1 * s, 24 * s, 2 * s);
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath(); ctx.ellipse(lx - 5 * s, ly + 3 * s, 3 * s, 1.5 * s, -0.4, 0, Math.PI * 2); ctx.fill();
+
+        // Dramatic lashes + purple eyeshadow
+        ctx.fillStyle = 'rgba(155,60,255,0.4)';
+        ctx.beginPath(); ctx.ellipse(12 * s, -16 * s, 7 * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 1.5 * s;
+        for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.moveTo((14 + i * 5) * s, (-16 + i * 2) * s);
+            ctx.lineTo((18 + i * 5) * s, (-22 + i * 2) * s);
+            ctx.stroke();
+        }
+
+        // Blush
+        ctx.fillStyle = 'rgba(255,105,180,0.45)';
+        ctx.beginPath(); ctx.ellipse(-4 * s, 6 * s, 8 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+
+        // Gold hoop earring
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 2 * s;
+        ctx.beginPath(); ctx.arc(-24 * s, -6 * s, 5 * s, 0, Math.PI * 2); ctx.stroke();
+
+        // Glitter sparkles
+        const glit = [[-30, -60], [26, -48], [-8, -68]];
+        for (let i = 0; i < glit.length; i++) {
+            if (Math.floor(t * 3 + i) % 2) continue;
+            ctx.fillStyle = i === 1 ? '#ffffff' : '#ff5ec7';
+            ctx.fillRect(glit[i][0] * s, glit[i][1] * s + bob, 3 * s, 3 * s);
+        }
+
+        // Golden ducks get a tiny crown on the perm
+        if (this.golden) {
+            ctx.fillStyle = '#FFD700';
+            ctx.fillRect(-8 * s, -74 * s + bob, 16 * s, 6 * s);
+            ctx.fillRect(-8 * s, -80 * s + bob, 3 * s, 6 * s);
+            ctx.fillRect(-1.5 * s, -82 * s + bob, 3 * s, 8 * s);
+            ctx.fillRect(5 * s, -80 * s + bob, 3 * s, 6 * s);
+        }
+    }
+}
+
+// Shared scratch canvas for the Ultra 3D-HD duck lighting (mask gradients to sprite alpha)
+let ultraScratch = document.createElement('canvas');
+function getUltraScratch(w, h) {
+    if (ultraScratch.width !== w || ultraScratch.height !== h) {
+        ultraScratch.width = w;
+        ultraScratch.height = h;
+    } else {
+        ultraScratch.getContext('2d').clearRect(0, 0, w, h);
+    }
+    return ultraScratch.getContext('2d');
+}
+
+// 3rd-person mode: the hunter — pixel Contra-style, rifle aimed at the mouse
+function drawTPSPlayer(ctx) {
+    const p = gameState.player;
+    const cx = p.x + p.w / 2;
+    const groundY = canvas.height - canvas.height * 0.12;
+
+    // Shadow shrinks with airtime
+    const air = Math.max(0, groundY - (p.y + p.h));
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(cx, groundY - 3, 14 * (1 - Math.min(1, air / 200) * 0.5), 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.translate(cx, p.y + p.h); // feet anchor
+    ctx.scale(p.facing, 1);
+
+    const swing = (p.moving && p.onGround) ? Math.sin(p.walkT) * 5 : 0;
+
+    // Legs + boots
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(-6 + swing * 0.5, -22, 5, 14);
+    ctx.fillRect(1 - swing * 0.5, -22, 5, 14);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-6 + swing * 0.5, -8, 5, 8);
+    ctx.fillRect(1 - swing * 0.5, -8, 5, 8);
+
+    // Torso: orange Duck Hunt hunter vest + strap
+    ctx.fillStyle = '#e07b39';
+    ctx.fillRect(-8, -40, 16, 19);
+    ctx.fillStyle = '#b35a20';
+    ctx.fillRect(-3, -40, 4, 19);
+
+    // Head + red cap with forward brim
+    ctx.fillStyle = '#f5d7a3';
+    ctx.fillRect(-5, -52, 10, 12);
+    ctx.fillStyle = '#c62828';
+    ctx.fillRect(-6, -56, 12, 6);
+    ctx.fillRect(2, -52, 8, 3);
+
+    // Rifle aimed at the crosshair
+    const dx = (currentAimX - cx) * p.facing;
+    const dy = currentAimY - (p.y + p.h * 0.55);
+    ctx.save();
+    ctx.translate(6, -34);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.fillStyle = '#333';
+    ctx.fillRect(0, -2, 30, 4);
+    ctx.fillStyle = '#6d4c41';
+    ctx.fillRect(-8, -2, 9, 5);
+    ctx.restore();
+
+    ctx.restore();
+}
+
+// 3rd-person mode: pseudo-3D scenery — buildings born tiny at the horizon, grow as
+// they approach, sweep outward past the player and exit at the screen edges
+function drawTPSScenery(ctx) {
+    const W = canvas.width;
+    const horizonY = canvas.height - canvas.height * 0.12;
+    const groundH = canvas.height - horizonY;
+    const palette = ['#8d6e63', '#a1887f', '#78909c', '#90a4ae', '#6d4c41'];
+
+    [...gameState.buildings]
+        .filter(b => (b.lane !== undefined) && Math.abs(b.layer - 0.2) > 0.1) // mid + close layers only
+        .sort((a, b) => b.z - a.z) // far first
+        .forEach(b => {
+            const f = 1 - Math.max(0, b.z); // 0 = horizon, 1 = at the player
+            const fy = f * f; // perspective easing (matches the path ticks)
+            const scale = 0.15 + fy * 1.5;
+            const bw = b.width * scale;
+            const bh = b.height * scale;
+            const baseY = horizonY + fy * groundH;
+            const cx = W / 2 + b.lane * (60 + fy * W * 0.45);
+            if (cx + bw / 2 < -60 || cx - bw / 2 > W + 60) return;
+
+            ctx.globalAlpha = Math.min(1, f * 5); // fade in at the horizon
+            // Body + roof cap
+            ctx.fillStyle = palette[(b.seed || 0) % palette.length];
+            ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh);
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh * 0.08);
+
+            // Windows: stable lit pattern per building (seeded)
+            const cols = Math.max(1, Math.floor(bw / 14));
+            const rows = Math.max(1, Math.floor(bh / 18));
+            const wx0 = cx - bw / 2 + bw * 0.12;
+            const wy0 = baseY - bh + bh * 0.12;
+            const ww = (bw * 0.76) / cols;
+            const wh = (bh * 0.78) / rows;
+            for (let i = 0; i < cols; i++) {
+                for (let j = 0; j < rows; j++) {
+                    ctx.fillStyle = ((i * 7 + j * 13 + (b.seed || 0)) % 5 < 2) ? '#ffd54f' : 'rgba(40,50,60,0.8)';
+                    ctx.fillRect(wx0 + i * ww + ww * 0.15, wy0 + j * wh + wh * 0.15, ww * 0.7, wh * 0.7);
+                }
+            }
+
+            // Antennas on tall towers
+            if (b.height > 120) {
+                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                ctx.lineWidth = Math.max(1, 2 * scale);
+                ctx.beginPath();
+                ctx.moveTo(cx, baseY - bh);
+                ctx.lineTo(cx, baseY - bh - 14 * scale);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        });
 }
 
 class Airplane {
@@ -1424,11 +1792,11 @@ class FeedPile {
         }
         // Lure the nearest flying duck
         for (const duck of gameState.ducks) {
-            if (duck.isDead || duck.feedTarget) continue;
+            if (duck.isDead || duck.feedTarget || duck.golden) continue;
             const dist = Math.hypot(this.x - (duck.x + duck.width / 2), this.y - (duck.y + duck.height / 2));
             if (dist < 260) {
                 duck.feedTarget = this;
-                duck.feedTimer = 1.0;
+                duck.feedTimer = 0.2;
                 break;
             }
         }
@@ -1442,6 +1810,131 @@ class FeedPile {
             ctx.fill();
         }
     }
+}
+
+// Powerup Crate: falls from killed ducks, shoot it to activate a random powerup
+const CRATE_TYPES = ['splash', 'scav', 'stun', 'shots', 'rain', 'scoop'];
+// 8x8 pixel-art icons ('#' = body color, 'o' = shine, '.' = transparent)
+const CRATE_SPRITES = {
+    splash: ["...#....", "...##...", "..####..", ".##o###.", ".######.", ".######.", "..####..", "...##..."],
+    scav:   ["..####..", ".#oooo#.", "#oo##oo#", "#o#oo#o#", "#o#oo#o#", "#oo##oo#", ".#oooo#.", "..####.."],
+    stun:   ["....###.", "...###..", "..###...", ".#####..", "...##...", "..###...", ".###....", ".#......"],
+    shots:  [".oo..oo.", ".##..##.", "###..###", "###..###", "###..###", "###..###", "###..###", "........"],
+    rain:   ["..####..", ".######.", "########", ".######.", "...#....", "..#.#...", "...#....", "..#.#..."],
+    scoop:  ["...##...", "...##...", "...##...", "...##...", ".######.", ".#oooo#.", ".######.", "..####.."]
+};
+// light / base / dark shades per type
+const CRATE_COLORS = {
+    splash: ['#8fe3a1', '#4caf50', '#2e7d32'],
+    scav:   ['#ffe082', '#ffc107', '#b8860b'],
+    stun:   ['#80deea', '#00bcd4', '#00838f'],
+    shots:  ['#f8bbd0', '#e91e63', '#ad1457'],
+    rain:   ['#ce93d8', '#9c27b0', '#6a1b9a'],
+    scoop:  ['#a1887f', '#795548', '#4e342e']
+};
+class PowerupCrate {
+    constructor(x, y, speed) {
+        this.x = x;
+        this.y = y;
+        this.width = 44;
+        this.height = 44;
+        this.vy = Math.min(140, Math.abs(speed) * 0.25 + 60);
+        this.type = CRATE_TYPES[Math.floor(Math.random() * CRATE_TYPES.length)];
+        this.wobble = Math.random() * Math.PI * 2;
+        this.isDead = false;
+        this.fullyDead = false;
+    }
+
+    update(dt) {
+        this.y += this.vy * dt;
+        this.wobble += dt * 3;
+        this.x += Math.sin(this.wobble) * 25 * dt;
+        if (this.y > canvas.height) this.fullyDead = true; // missed it
+    }
+
+    draw(ctx) {
+        const colors = CRATE_COLORS[this.type] || CRATE_COLORS.scav;
+        const sprite = CRATE_SPRITES[this.type] || CRATE_SPRITES.scav;
+        const w = this.width, h = this.height;
+        const now = performance.now();
+
+        // Pixel bob: quantize to whole 2px steps so it stays 8-bit (no smooth float)
+        const bob = Math.floor(Math.sin(now / 180 + this.wobble) * 2) * 2;
+
+        // Ground-style drop shadow beneath the box
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(this.x + 4, this.y + h + 2 + bob, w - 8, 4);
+
+        // Crate frame (pixel-styled: flat fills, hard edges)
+        const px = Math.floor(this.x), py = Math.floor(this.y) + bob;
+        ctx.fillStyle = '#1a1a1a';                                  // outline
+        ctx.fillRect(px, py, w, h);
+        ctx.fillStyle = colors[2];                                  // dark bottom half
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 4);
+        ctx.fillStyle = colors[1];                                  // base
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 8);
+        ctx.fillStyle = colors[0];                                  // light top edge
+        ctx.fillRect(px + 2, py + 2, w - 4, 4);
+
+        // Corner rivets
+        ctx.fillStyle = '#f5f5f5';
+        ctx.fillRect(px + 4, py + 4, 3, 3);
+        ctx.fillRect(px + w - 7, py + 4, 3, 3);
+        ctx.fillRect(px + 4, py + h - 7, 3, 3);
+        ctx.fillRect(px + w - 7, py + h - 7, 3, 3);
+
+        // Sweeping shine: a 2px glint marching across the top every ~1.2s
+        const shineX = px + 4 + Math.floor((now / 1200 + this.wobble) % 1) * (w - 12);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillRect(shineX, py + 2, 2, 4);
+
+        // Icon: 8x8 sprite at 3px cells, with a 1px offset dark shadow for depth
+        const cell = 3;
+        const ix = px + Math.floor((w - 8 * cell) / 2);
+        const iy = py + Math.floor((h - 8 * cell) / 2) + 1;
+        for (let r = 0; r < sprite.length; r++) {
+            for (let c = 0; c < sprite[r].length; c++) {
+                const ch = sprite[r][c];
+                if (ch === '.') continue;
+                ctx.fillStyle = (ch === 'o') ? '#ffffff' : colors[1];
+                ctx.fillRect(ix + c * cell + 1, iy + r * cell + 1, cell, cell); // +1 = shadow offset
+                ctx.fillStyle = (ch === 'o') ? colors[0] : colors[0];
+                ctx.fillRect(ix + c * cell, iy + r * cell, cell, cell);
+            }
+        }
+
+        // Blinking sparkle pixels (two fixed corners, alternating)
+        const blink = Math.floor(now / 250) % 2 === 0;
+        ctx.fillStyle = blink ? '#ffffff' : colors[0];
+        ctx.fillRect(px + w - 10, py + 8, 2, 2);
+        ctx.fillStyle = blink ? colors[0] : '#ffffff';
+        ctx.fillRect(px + 8, py + h - 12, 2, 2);
+    }
+}
+
+const POWER_FLAGS = ['mirrorRounds', 'molassesRounds', 'hollowRounds', 'deadeyeRounds', 'splashRounds', 'scavRounds', 'stunRounds', 'freeShots', 'ammoRainRounds', 'ammoRainTimer'];
+
+function activateCrate(type, x, y) {
+    const names = {
+        splash: 'SPLASH DAMAGE!', scav: 'SCAVENGER!', stun: 'STUN SHELLS!',
+        shots: 'DOUBLE BARREL!', rain: 'AMMO RAIN!', scoop: 'SCOOP!'
+    };
+    if (type === 'splash') gameState.splashRounds = 1;
+    if (type === 'scav') gameState.scavRounds = 1;
+    if (type === 'stun') gameState.stunRounds = 1;
+    if (type === 'shots') gameState.freeShots = 5;
+    if (type === 'rain') { gameState.ammoRainRounds = 1; gameState.ammoRainTimer = 0; }
+    if (type === 'scoop') {
+        let count = gameState.bossProjectiles.filter(p => !p.isDead).length;
+        gameState.bossProjectiles.forEach(p => { p.isDead = true; p.fullyDead = true; });
+        if (count > 0) addScore(500 * count, x, y);
+    }
+    playSound(jingleBuffer, 0.8);
+    gameState.floatingTexts.push({
+        x: x || canvas.width / 2, y: (y || canvas.height / 2) - 30,
+        text: names[type] || 'POWERUP!', timer: 1.5, life: 1.5,
+        color: '#FFD700', size: 18
+    });
 }
 
 class DrivingEnemy {
@@ -2449,6 +2942,7 @@ class PoopProjectile {
     update(dt) {
         if (this.isDead) return;
 
+        dt *= (gameState.stunRounds > 0 ? 0.5 : 1); // Stun Shells slow incoming projectiles
         let speedScaling = 1 + Math.sin(this.timer * 6) * 0.4;
         this.timer += dt * speedScaling;
 
@@ -3080,6 +3574,7 @@ class BossProjectile {
 
     update(dt) {
         // Varying speed: accelerate and decelerate using sine
+        dt *= (gameState.stunRounds > 0 ? 0.5 : 1); // Stun Shells slow incoming projectiles
         let speedScaling = 1 + Math.sin(this.timer * 6) * 0.4;
         this.timer += dt * speedScaling;
 
@@ -4041,20 +4536,31 @@ class Projectile {
         if (this.targetDuck && !this.targetDuck.isDead) { // Ensure it wasn't destroyed
             let duck = this.targetDuck;
             duck.die(gameState.character);
-            addScore(500, duck.x + duck.width / 2, duck.y);
+            addScore(duck.golden ? 1500 : 500, duck.x + duck.width / 2, duck.y);
+            if (duck.golden) {
+                gameState.floatingTexts.push({ x: duck.x + duck.width / 2, y: duck.y - 30, text: "GOLDEN!", timer: 1.5, life: 1.5, color: "#FFD700", size: 18 });
+            }
+            if (gameState.slayMode) {
+                const slayWords = ['YAAS!', 'SLAY!', 'QWEEN!', 'STUNNING!', 'MOTHER!', 'FABULOUS!'];
+                gameState.floatingTexts.push({
+                    x: duck.x + duck.width / 2, y: duck.y - 55,
+                    text: slayWords[Math.floor(Math.random() * slayWords.length)],
+                    timer: 1.5, life: 1.5, color: '#ff5ec7', size: 18
+                });
+            }
             gameState.killCount++;
             gameState.sessionKills++;
 
             // Play quack explicitly tailored to duck's difficulty level
             playQuack(duck.level);
 
-            // Gain a bullet for every 2 kills in a round
-            if (gameState.sessionKills % 2 === 0) {
+            // Gain a bullet for every 2 kills in a round (Scavenger: every kill)
+            if (gameState.scavRounds > 0 || gameState.sessionKills % 2 === 0) {
                 gameState.ammo++;
             }
 
             // If level 3 or higher, perform the split
-            if (duck.level >= 3) {
+            if (duck.level >= 3 && !duck.golden) {
                 let splitLevel = duck.level - 2;
                 gameState.ducks.push(new Duck(splitLevel, duck.x, duck.y, true));
                 gameState.ducks.push(new Duck(splitLevel, duck.x + duck.width / 2, duck.y, true));
@@ -4077,6 +4583,26 @@ class Projectile {
             if (Math.random() < 0.05) {
                 let duckSpeed = Math.hypot(duck.vx, duck.vy);
                 gameState.hotdogs.push(new HotdogPowerUp(duck.x, duck.y, duckSpeed));
+            }
+
+            // Powerup crate drop with 8% chance
+            if (Math.random() < 0.08) {
+                let duckSpeed = Math.hypot(duck.vx, duck.vy);
+                gameState.crates.push(new PowerupCrate(duck.x, duck.y, duckSpeed));
+            }
+
+            // Splash Damage: the kill chains to nearby ducks
+            if (gameState.splashRounds > 0) {
+                gameState.ducks.forEach(other => {
+                    if (!other.isDead && other !== duck &&
+                        Math.hypot((other.x + other.width / 2) - (duck.x + duck.width / 2), (other.y + other.height / 2) - (duck.y + duck.height / 2)) < 120) {
+                        other.die(gameState.character);
+                        addScore(500, other.x + other.width / 2, other.y);
+                        gameState.killCount++;
+                        gameState.sessionKills++;
+                        playQuack(other.level);
+                    }
+                });
             }
 
             updateUI();
@@ -4169,13 +4695,13 @@ class Projectile {
                 // Check if it's the BigHeadBoss (has engines) vs UncleanOneBoss (has segments)
                 if (boss.engines !== undefined && details.hitEngineIndex !== undefined) {
                     boss.engines[details.hitEngineIndex] = false;
-                    boss.hp -= 5;
+                    boss.hp -= 5 * (gameState.hollowRounds > 0 ? 2 : 1);
                     gameState.ammo += 2; // +2 bullets per engine shot
                     playSound(boomBuffer, 0.6);
                 } else if (details.hitHead && boss.engines !== undefined) {
                     // Check if all engines are dead
                     if (boss.engines.every(e => !e)) {
-                        boss.hp -= 5;
+                        boss.hp -= 5 * (gameState.hollowRounds > 0 ? 2 : 1);
                         boss.speedMult *= 1.1;
                         boss.fireRateMult *= 1.2;
                         playSound(wompBuffer, 0.8);
@@ -4197,7 +4723,7 @@ class Projectile {
                     const seg = details.hitSegment;
                     if (seg === 'hands') {
                         boss.segments.hands.hp -= 10;
-                        boss.hp -= 10;
+                        boss.hp -= 10 * (gameState.hollowRounds > 0 ? 2 : 1);
                         boss.handsFlash = 0.2;
                         boss.flashColor = "red";
                         boss.painTimer = 0.3;
@@ -4231,7 +4757,7 @@ class Projectile {
                     } else {
                         // Body or Head hit logic
                         boss.segments[seg].hp -= 10;
-                        boss.hp -= 10;
+                        boss.hp -= 10 * (gameState.hollowRounds > 0 ? 2 : 1);
                         if (seg === 'body') boss.bodyFlash = 0.2;
                         if (seg === 'head') boss.headFlash = 0.2;
                         boss.flashColor = "red";
@@ -4394,6 +4920,16 @@ canvas.addEventListener('mousemove', (e) => {
     currentAimY = e.clientY - rect.top;
 });
 
+// 3rd-person mode: run/jump keys
+const tpsKeys = {};
+window.addEventListener('keydown', (e) => {
+    tpsKeys[e.code] = true;
+    if (gameState.tpsMode && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+});
+window.addEventListener('keyup', (e) => {
+    tpsKeys[e.code] = false;
+});
+
 canvas.addEventListener('touchmove', (e) => {
     let rect = canvas.getBoundingClientRect();
     if (e.touches.length > 0) {
@@ -4410,7 +4946,7 @@ function handleShoot(event) {
     if (now - lastShotTime < 100) return; // Prevent double-fire from overlapping events
     lastShotTime = now;
 
-    if (gameState.ammo <= 0) return;
+    if (gameState.ammo <= 0 && gameState.freeShots <= 0) return;
 
     // Get click/touch coordinates
     let rect = canvas.getBoundingClientRect();
@@ -4463,11 +4999,19 @@ function handleShoot(event) {
 
     // Spawn Projectile from Gun Muzzle
     let dSize = 4;
-    let uiYOffset = 85;
-    let bgBoxX = 10;
-    let bgBoxW = 16 * dSize + 20;
-    let gunX = bgBoxX + bgBoxW + 20;
-    let gunY = canvas.height - uiYOffset + 10;
+    let gunX, gunY;
+    if (gameState.tpsMode && gameState.player) {
+        // 3rd-person: the muzzle is the hunter's rifle
+        const p = gameState.player;
+        gunX = p.x + p.w / 2 + p.facing * 14;
+        gunY = p.y + p.h * 0.45;
+    } else {
+        let uiYOffset = 85;
+        let bgBoxX = 10;
+        let bgBoxW = 16 * dSize + 20;
+        gunX = bgBoxX + bgBoxW + 20;
+        gunY = canvas.height - uiYOffset + 10;
+    }
     let barrelLen = 31 * dSize;
 
     // Calculate dynamic rotation angle based on where user clicked
@@ -4565,6 +5109,19 @@ function handleShoot(event) {
                 }
             }
 
+            // Check powerup crates (fall from killed ducks)
+            for (const crate of gameState.crates) {
+                if (!crate.isDead &&
+                    currentX >= crate.x - 8 && currentX <= crate.x + crate.width + 8 &&
+                    currentY >= crate.y - 8 && currentY <= crate.y + crate.height + 8) {
+                    crate.isDead = true;
+                    crate.fullyDead = true;
+                    activateCrate(crate.type, currentX, currentY);
+                    hitEagle = { isDead: true }; // Counts as a hit; suppresses the later checks
+                    break;
+                }
+            }
+
             // Check eagles
             for (let i = gameState.eagles.length - 1; i >= 0; i--) {
                 const eagle = gameState.eagles[i];
@@ -4601,9 +5158,10 @@ function handleShoot(event) {
             if (!hitTiger && !hitEagle && !hitBomber) {
                 for (let i = gameState.ducks.length - 1; i >= 0; i--) {
                     const duck = gameState.ducks[i];
+                    const pad = gameState.deadeyeRounds > 0 ? 20 : 0; // Deadeye widens the hitbox
                     if (!duck.isDead && !duck.isTargeted &&
-                        currentX >= duck.x && currentX <= duck.x + duck.width &&
-                        currentY >= duck.y && currentY <= duck.y + duck.height) {
+                        currentX >= duck.x - pad && currentX <= duck.x + duck.width + pad &&
+                        currentY >= duck.y - pad && currentY <= duck.y + duck.height + pad) {
                         hitDuck = duck;
                         duck.isTargeted = true;
                         break;
@@ -4732,7 +5290,11 @@ function handleShoot(event) {
         gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber, hitDetails, hitDrivingEnemy));
     });
 
-    gameState.ammo--;
+    if (gameState.freeShots > 0) {
+        gameState.freeShots--; // Double Barrel: shot costs no ammo
+    } else {
+        gameState.ammo--;
+    }
     updateUI();
 }
 
@@ -5519,6 +6081,49 @@ function gameLoop(timestamp) {
         gameState.drivingMode.update(dt);
     }
 
+    // 3rd-person mode: Contra-style player physics (run, jump, gravity)
+    if (gameState.tpsMode && gameState.player) {
+        const p = gameState.player;
+        const groundY = canvas.height - canvas.height * 0.12 - p.h;
+        p.moving = false;
+        if (tpsKeys['ArrowLeft'] || tpsKeys['KeyA']) { p.x -= 260 * dt; p.moving = true; }
+        if (tpsKeys['ArrowRight'] || tpsKeys['KeyD']) { p.x += 260 * dt; p.moving = true; }
+        p.x = Math.max(10, Math.min(canvas.width - p.w - 10, p.x));
+
+        // Walking forward: scenery approaches from the horizon, grows, sweeps past
+        gameState.buildings.forEach(b => {
+            if (b.lane === undefined) {
+                b.z = 1;
+                b.lane = (0.4 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1);
+                b.seed = Math.floor(Math.random() * 1000);
+                b.tpsSpeed = 0.8 + Math.random() * 0.5;
+            }
+            // Far = slow crawl, near = fast rush (accelerating approach)
+            b.z -= (0.05 + 0.3 * (1 - Math.min(1, b.z))) * (b.tpsSpeed || 1) * dt;
+            if (b.z <= 0) {
+                b.z = 1;
+                b.lane = (0.4 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1);
+                b.seed = Math.floor(Math.random() * 1000);
+                b.tpsSpeed = 0.8 + Math.random() * 0.5;
+            }
+        });
+        if ((tpsKeys['Space'] || tpsKeys['KeyW'] || tpsKeys['ArrowUp']) && p.onGround) {
+            p.vy = -560;
+            p.onGround = false;
+        }
+        p.vy += 1600 * dt;
+        p.y += p.vy * dt;
+        if (p.y >= groundY) {
+            p.y = groundY;
+            p.vy = 0;
+            p.onGround = true;
+        }
+        if (p.moving && p.onGround) p.walkT += dt * 12;
+        // The hunter faces where the gun points
+        if (currentAimX < p.x + p.w / 2 - 4) p.facing = -1;
+        else if (currentAimX > p.x + p.w / 2 + 4) p.facing = 1;
+    }
+
     // Update splatters
     if (gameState.splatters) {
         gameState.splatters.forEach(s => s.update(dt));
@@ -5528,6 +6133,20 @@ function gameLoop(timestamp) {
     // Update feed piles
     gameState.feedPiles.forEach(f => f.update(dt));
     gameState.feedPiles = gameState.feedPiles.filter(f => !f.eaten);
+
+    // Update powerup crates
+    gameState.crates.forEach(c => c.update(dt));
+    gameState.crates = gameState.crates.filter(c => !c.fullyDead);
+
+    // Ammo Rain: passive ammo every 4 seconds
+    if (gameState.ammoRainRounds > 0) {
+        gameState.ammoRainTimer += dt;
+        if (gameState.ammoRainTimer >= 4) {
+            gameState.ammoRainTimer = 0;
+            gameState.ammo++;
+            updateUI();
+        }
+    }
 
     if (gameState.victoryTimer > 0) {
         let prevTimer = gameState.victoryTimer;
@@ -6065,37 +6684,6 @@ function gameLoop(timestamp) {
     // Filter out dead/offscreen planes
     gameState.airplanes = gameState.airplanes.filter(p => p.y < 1000 && p.x > -200 && p.x < canvas.width + 200);
 
-    // Update & Draw Ducks
-    gameState.ducks.forEach(duck => {
-        duck.update(effectiveDt);
-        duck.draw(ctx);
-    });
-
-    // Remove ducks that are off-screen (fallen down or flew away)
-    gameState.ducks = gameState.ducks.filter(duck => {
-        // If duck flies off the top of the canvas, it escaped!
-        if (!duck.isDead && duck.y < -150) {
-            gameState.escapedThisRound++;
-            if (gameState.drivingMode) {
-                triggerDrivingPenalty();
-            } else {
-                gameState.lives--;
-                updateUI();
-                if (gameState.lives <= 0 && gameState.phase !== 'GAME_OVER') {
-                    triggerGameOver();
-                }
-            }
-            return false;
-        }
-        return duck.y < canvas.height + 100 && duck.y > -200;
-    });
-
-    // Update & Draw Tigers
-    gameState.tigers.forEach(tiger => {
-        tiger.update(effectiveDt);
-        tiger.draw(ctx);
-    });
-
     // Update & Draw Heavy Bombers
     if (gameState.heavyBombers) {
         gameState.heavyBombers.forEach(bomber => {
@@ -6164,6 +6752,11 @@ function gameLoop(timestamp) {
         if (gameState.mirrorRounds > 0) {
             gameState.mirrorRounds--;
         }
+
+        // Round-long powerups decrement at each round start
+        ['molassesRounds', 'hollowRounds', 'deadeyeRounds', 'splashRounds', 'scavRounds', 'stunRounds', 'ammoRainRounds'].forEach(key => {
+            if (gameState[key] > 0) gameState[key]--;
+        });
 
         // Calculate bomber spawn chance: 2% base + 1% per 5 rounds
         let bomberChance = 0.02 + Math.floor((gameState.round - 1) / 5) * 0.01;
@@ -6394,6 +6987,11 @@ function gameLoop(timestamp) {
         gameState.boss.draw(ctx);
     }
 
+    // Feeding ducks render behind hills/buildings/grass (they're at ground level, diving to feed)
+    gameState.ducks.forEach(duck => {
+        if (duck.feedTarget) duck.draw(ctx);
+    });
+
     // Draw background hills (behind buildings)
     let grassLevel = canvas.height - (canvas.height * 0.12);    // Draw hills with Parallax
     if (gameState.hills && !gameState.drivingMode) {
@@ -6476,11 +7074,95 @@ function gameLoop(timestamp) {
     });
     gameState.hillAnimals = gameState.hillAnimals.filter(a => !a.isDead);
 
+    // Draw Perspective Ground (Trapezoidal grid floor)
+    const season = getSeasonData(gameState.round);
+    let horizonY = grassLevel;
+
+    if (!gameState.drivingMode) {
+        let groundH = canvas.height - horizonY;
+        
+        // Draw base floor
+        ctx.fillStyle = season.grass;
+        ctx.fillRect(0, horizonY, canvas.width, groundH);
+
+        // 3rd-person mode: a dirt path up-screen with ticks rushing past (walking illusion)
+    if (gameState.tpsMode) {
+        const t = performance.now() / 1000;
+        // Path slab: wide at the bottom, converging to the horizon
+        ctx.fillStyle = 'rgba(160, 120, 70, 0.55)';
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2 - 55, canvas.height);
+        ctx.lineTo(canvas.width / 2 + 55, canvas.height);
+        ctx.lineTo(canvas.width / 2 + 10, horizonY);
+        ctx.lineTo(canvas.width / 2 - 10, horizonY);
+        ctx.closePath();
+        ctx.fill();
+        // Edge lines
+        ctx.strokeStyle = 'rgba(90, 60, 30, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2 - 55, canvas.height);
+        ctx.lineTo(canvas.width / 2 - 10, horizonY);
+        ctx.moveTo(canvas.width / 2 + 55, canvas.height);
+        ctx.lineTo(canvas.width / 2 + 10, horizonY);
+        ctx.stroke();
+        // Ticks rushing toward the player (accelerating = perspective)
+        ctx.fillStyle = 'rgba(90, 60, 30, 0.7)';
+        for (let i = 0; i < 10; i++) {
+            const f = (i / 10 + t * 0.35) % 1;
+            const fy = f * f; // ease-in: ticks accelerate as they near the player
+            const y = horizonY + fy * groundH;
+            const halfW = 8 + fy * 47;
+            ctx.fillRect(canvas.width / 2 - halfW, y, halfW * 2, 2 + fy * 3);
+        }
+    }
+
+        if (gameState.perspectiveMode) {
+            // Draw Perspective Lines (Geometric floor depth)
+            ctx.strokeStyle = '#144317';
+            ctx.lineWidth = 1;
+            
+            // Horizontal perspective lines (Subtle depth)
+            for (let j = 0; j <= 10; j++) {
+                let yLine = horizonY + (groundH * Math.pow(j/10, 2)); // Exponential spacing for depth
+                ctx.beginPath();
+                ctx.moveTo(0, yLine);
+                ctx.lineTo(canvas.width, yLine);
+                ctx.stroke();
+            }
+        }
+    }
+
+    // Draw Grass Foreground Jaggedness (Only at the very bottom edge of horizon)
+    ctx.fillStyle = season.grass;
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    if (!gameState.perspectiveMode) {
+        for (let i = 0; i <= canvas.width + 20; i += 20) {
+            ctx.lineTo(i - 10, horizonY - 15 - (i % 25)); // Original flatter jaggedness
+            ctx.lineTo(i, horizonY);
+        }
+    } else {
+        for (let i = 0; i <= canvas.width + 20; i += 20) {
+            ctx.lineTo(i - 10, horizonY - 10 - (i % 15));
+            ctx.lineTo(i, horizonY);
+        }
+    }
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.fill();
+
+    // Draw top border line for grass to define it
+    ctx.strokeStyle = '#33691E';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
     // Draw background buildings (skyline) with 3D depth
-    if (gameState.buildings && !gameState.drivingMode) {
+    // In 3rd-person mode a dedicated pseudo-3D renderer handles scenery instead
+    if (gameState.buildings && !gameState.drivingMode && !gameState.tpsMode) {
         // Sort by layer
         [...gameState.buildings].sort((a,b) => a.layer - b.layer).forEach(b => {
-            let bY = Math.floor(grassLevel - b.height + 5); 
+            let bY = Math.floor(grassLevel - b.height + 5);
             let pW = b.width;
             let pX = b.x;
             let pSide = 8 * b.layer; // Depth of side face
@@ -6662,56 +7344,8 @@ function gameLoop(timestamp) {
         });
     }
 
-    // Draw Perspective Ground (Trapezoidal grid floor)
-    const season = getSeasonData(gameState.round);
-    let horizonY = grassLevel;
-
-    if (!gameState.drivingMode) {
-        let groundH = canvas.height - horizonY;
-        
-        // Draw base floor
-        ctx.fillStyle = season.grass;
-        ctx.fillRect(0, horizonY, canvas.width, groundH);
-        
-        if (gameState.perspectiveMode) {
-            // Draw Perspective Lines (Geometric floor depth)
-            ctx.strokeStyle = '#144317';
-            ctx.lineWidth = 1;
-            
-            // Horizontal perspective lines (Subtle depth)
-            for (let j = 0; j <= 10; j++) {
-                let yLine = horizonY + (groundH * Math.pow(j/10, 2)); // Exponential spacing for depth
-                ctx.beginPath();
-                ctx.moveTo(0, yLine);
-                ctx.lineTo(canvas.width, yLine);
-                ctx.stroke();
-            }
-        }
-    }
-
-    // Draw Grass Foreground Jaggedness (Only at the very bottom edge of horizon)
-    ctx.fillStyle = season.grass;
-    ctx.beginPath();
-    ctx.moveTo(0, horizonY);
-    if (!gameState.perspectiveMode) {
-        for (let i = 0; i <= canvas.width + 20; i += 20) {
-            ctx.lineTo(i - 10, horizonY - 15 - (i % 25)); // Original flatter jaggedness
-            ctx.lineTo(i, horizonY);
-        }
-    } else {
-        for (let i = 0; i <= canvas.width + 20; i += 20) {
-            ctx.lineTo(i - 10, horizonY - 10 - (i % 15));
-            ctx.lineTo(i, horizonY);
-        }
-    }
-    ctx.lineTo(canvas.width, canvas.height);
-    ctx.lineTo(0, canvas.height);
-    ctx.fill();
-
-    // Draw top border line for grass to define it
-    ctx.strokeStyle = '#33691E';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    // 3rd-person mode: pseudo-3D scenery approaching along the path
+    if (gameState.tpsMode) drawTPSScenery(ctx);
 
     // Update & Draw Cars (drawn over background buildings and grass)
     if (gameState.cars && !gameState.drivingMode) {
@@ -6739,12 +7373,51 @@ function gameLoop(timestamp) {
         gameState.hotdogs = gameState.hotdogs.filter(h => h.y < canvas.height + 100 && h.y > -200);
     }
 
+    // Update & Draw Ducks (over hills, buildings and grass — same layer as eagles/hotdogs;
+    // feeding ducks are drawn earlier, behind the scenery)
+    gameState.ducks.forEach(duck => {
+        duck.update(effectiveDt);
+        if (!duck.feedTarget) duck.draw(ctx);
+    });
+
+    // Remove ducks that are off-screen (fallen down or flew away)
+    gameState.ducks = gameState.ducks.filter(duck => {
+        // If duck flies off the top of the canvas, it escaped!
+        if (!duck.isDead && duck.y < -150) {
+            gameState.escapedThisRound++;
+            if (gameState.drivingMode) {
+                triggerDrivingPenalty();
+            } else {
+                gameState.lives--;
+                updateUI();
+                if (gameState.lives <= 0 && gameState.phase !== 'GAME_OVER') {
+                    triggerGameOver();
+                }
+            }
+            return false;
+        }
+        return duck.y < canvas.height + 100 && duck.y > -200;
+    });
+
     // Update & Draw Seeking Missiles
     gameState.seekingMissiles.forEach(m => {
         m.update(dt);
         m.draw(ctx);
     });
     gameState.seekingMissiles = gameState.seekingMissiles.filter(m => !m.fullyDead);
+
+    // 3rd-person mode: draw the hunter and the crosshair
+    if (gameState.tpsMode && gameState.player) {
+        drawTPSPlayer(ctx);
+        if (gameState.phase === 'PLAY' || gameState.phase === 'SPAWN') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(currentAimX - 8, currentAimY); ctx.lineTo(currentAimX + 8, currentAimY);
+            ctx.moveTo(currentAimX, currentAimY - 8); ctx.lineTo(currentAimX, currentAimY + 8);
+            ctx.stroke();
+        }
+    }
 
     // Update Projectiles
     gameState.projectiles.forEach(p => {
@@ -6759,6 +7432,9 @@ function gameLoop(timestamp) {
     // Draw Fireworks
     gameState.fireworks.forEach(f => f.draw(ctx));
 
+    // Draw powerup crates
+    gameState.crates.forEach(c => c.draw(ctx));
+
     // Draw Projectiles ON TOP of grass and foreground
     gameState.projectiles.forEach(p => {
         p.draw(ctx);
@@ -6766,7 +7442,7 @@ function gameLoop(timestamp) {
     gameState.projectiles = gameState.projectiles.filter(p => !p.fullyDead);
 
     // Update & Draw Stick Figures
-    if (!gameState.drivingMode) {
+    if (!gameState.drivingMode && !gameState.tpsMode) {
         gameState.stickFigures.forEach(sf => {
             sf.update(dt);
             sf.draw(ctx);
@@ -6913,6 +7589,15 @@ function gameLoop(timestamp) {
 
     // Draw feed piles on the ground
     gameState.feedPiles.forEach(f => f.draw(ctx));
+
+    // Ultra 3D-HD: cinematic vignette over the world
+    if (gameState.ultraHD) {
+        const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.height * 0.35, canvas.width / 2, canvas.height / 2, canvas.height * 0.9);
+        vg.addColorStop(0, 'rgba(0,0,0,0)');
+        vg.addColorStop(1, 'rgba(10,5,30,0.4)');
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     // --- Draw Floating Texts (ON TOP OF EVERYTHING) ---
     gameState.floatingTexts.forEach(ft => {
@@ -7090,6 +7775,9 @@ function showVendingScreen() {
     buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
     buySkipBtn.disabled = gameState.score < 50000;
     buyMirrorBtn.disabled = gameState.score < 40000;
+    buyMolassesBtn.disabled = gameState.score < 35000;
+    buyHollowBtn.disabled = gameState.score < 50000;
+    buyDeadeyeBtn.disabled = gameState.score < 30000;
 }
 
 buyLifeBtn.onclick = () => {
@@ -7142,6 +7830,39 @@ buyMirrorBtn.onclick = () => {
         buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
         buySkipBtn.disabled = gameState.score < 50000;
         buyMirrorBtn.disabled = gameState.score < 40000;
+        buyMolassesBtn.disabled = gameState.score < 35000;
+        buyHollowBtn.disabled = gameState.score < 50000;
+        buyDeadeyeBtn.disabled = gameState.score < 30000;
+    }
+};
+
+buyMolassesBtn.onclick = () => {
+    if (gameState.score >= 35000) {
+        gameState.score -= 35000;
+        gameState.molassesRounds = 1;
+        playSound(jingleBuffer);
+        updateUI();
+        buyMolassesBtn.disabled = gameState.score < 35000;
+    }
+};
+
+buyHollowBtn.onclick = () => {
+    if (gameState.score >= 50000) {
+        gameState.score -= 50000;
+        gameState.hollowRounds = 1;
+        playSound(jingleBuffer);
+        updateUI();
+        buyHollowBtn.disabled = gameState.score < 50000;
+    }
+};
+
+buyDeadeyeBtn.onclick = () => {
+    if (gameState.score >= 30000) {
+        gameState.score -= 30000;
+        gameState.deadeyeRounds = 1;
+        playSound(jingleBuffer);
+        updateUI();
+        buyDeadeyeBtn.disabled = gameState.score < 30000;
     }
 };
 
@@ -7158,7 +7879,8 @@ vendingContinueBtn.onclick = () => {
         let currentLives = gameState.lives;
         let currentRound = gameState.round;
         let currentBlessing = gameState.blessingRounds;
-        let currentMirror = gameState.mirrorRounds;
+        let savedPower = {};
+        POWER_FLAGS.forEach(k => savedPower[k] = gameState[k]);
         
         // Restore primitives
         Object.assign(gameState, savedGameState);
@@ -7168,7 +7890,7 @@ vendingContinueBtn.onclick = () => {
         gameState.lives = currentLives;
         gameState.round = currentRound;
         gameState.blessingRounds = currentBlessing;
-        gameState.mirrorRounds = currentMirror;
+        POWER_FLAGS.forEach(k => gameState[k] = savedPower[k]);
         
         savedGameState = null;
     }
@@ -7182,6 +7904,7 @@ vendingContinueBtn.onclick = () => {
     gameState.hotdogs = [];
     gameState.seekingMissiles = [];
     gameState.feedPiles = [];
+    gameState.crates = [];
     gameState.floatingTexts = [];
 
     gameState.phase = 'SPAWN';
@@ -7194,8 +7917,29 @@ vendingContinueBtn.onclick = () => {
 
 window.selectCharacter = selectCharacter;
 
-function startGame(is3D = false) {
-    gameState.perspectiveMode = is3D;
+function startGame(is3D = false, ultra = false, slay = false, tps = false) {
+    gameState.perspectiveMode = is3D || ultra || tps;
+    gameState.ultraHD = ultra;
+    gameState.slayMode = slay;
+    gameState.tpsMode = tps;
+    if (tps) {
+        const groundY = canvas.height - canvas.height * 0.12;
+        gameState.player = {
+            x: canvas.width / 2 - 13, y: groundY - 52, w: 26, h: 52,
+            vy: 0, onGround: true, facing: 1, walkT: 0, moving: false
+        };
+        // Stagger path scenery from horizon to foreground (pseudo-3D depth model)
+        gameState.buildings.forEach(b => {
+            b.z = 0.1 + Math.random() * 0.9;
+            b.lane = (0.4 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1);
+            b.seed = Math.floor(Math.random() * 1000);
+            b.tpsSpeed = 0.8 + Math.random() * 0.5;
+        });
+    } else {
+        gameState.player = null;
+    }
+    const rtxBadge = document.getElementById('rtx-badge');
+    if (rtxBadge) rtxBadge.style.display = ultra ? 'block' : 'none';
     startScreen.style.display = 'none';
     almanachScreen.style.display = 'none';
     charSelection.style.display = 'flex';
@@ -7314,6 +8058,18 @@ startBtn.addEventListener('touchstart', () => startGame(false), { passive: true 
 startBtn3d.addEventListener('click', () => startGame(true));
 startBtn3d.addEventListener('touchstart', () => startGame(true), { passive: true });
 
+const startBtnUltra = document.getElementById('start-btn-ultra');
+startBtnUltra.addEventListener('click', () => startGame(true, true));
+startBtnUltra.addEventListener('touchstart', () => startGame(true, true), { passive: true });
+
+const startBtnSlay = document.getElementById('start-btn-slay');
+startBtnSlay.addEventListener('click', () => startGame(false, false, true));
+startBtnSlay.addEventListener('touchstart', () => startGame(false, false, true), { passive: true });
+
+const startBtnTps = document.getElementById('start-btn-tps');
+startBtnTps.addEventListener('click', () => startGame(false, false, false, true));
+startBtnTps.addEventListener('touchstart', () => startGame(false, false, false, true), { passive: true });
+
 function launchFsAndStart(e) {
     toggleFullscreen(e);
     startGame(false);
@@ -7329,6 +8085,8 @@ const resetBtn = document.getElementById('reset-btn');
 function resetToStart(e) {
     if (e) e.stopPropagation();
     resetBtn.style.display = 'none';
+    const rtxBadge = document.getElementById('rtx-badge');
+    if (rtxBadge) rtxBadge.style.display = 'none';
     if (somberSource) {
         somberSource.stop();
         somberSource.disconnect();
@@ -7863,13 +8621,14 @@ shadowyContinue.onclick = (e) => {
         // We want to keep the current round and max round increment if it just happened
         let currentRound = gameState.round;
         let currentMax = gameState.maxRoundReached;
-        let currentMirror = gameState.mirrorRounds;
+        let savedPower = {};
+        POWER_FLAGS.forEach(k => savedPower[k] = gameState[k]);
         
         Object.assign(gameState, savedGameState);
         
         gameState.round = currentRound;
         gameState.maxRoundReached = currentMax;
-        gameState.mirrorRounds = currentMirror;
+        POWER_FLAGS.forEach(k => gameState[k] = savedPower[k]);
         savedGameState = null;
     }
     
@@ -7882,6 +8641,7 @@ shadowyContinue.onclick = (e) => {
     gameState.hotdogs = [];
     gameState.seekingMissiles = [];
     gameState.feedPiles = [];
+    gameState.crates = [];
     gameState.floatingTexts = [];
     
     // Re-initialize state for the next round

@@ -23,6 +23,9 @@
             <div style="display:flex; flex-direction: column; align-items: stretch; gap: 15px;">
                 <button id="start-btn" class="btn">NEW GAME</button>
                 <button id="start-3d-btn" class="btn">NEW GAME (3D)</button>
+                <button id="start-btn-ultra" class="btn">NEW GAME (ULTRA 3D-HD)</button>
+                <button id="start-btn-slay" class="btn" style="background: linear-gradient(90deg,#ff5ec7,#b03a8c); border-color:#ff5ec7;">NEW GAME (SLAY BESTIE)</button>
+                <button id="start-btn-tps" class="btn" style="background: linear-gradient(90deg,#2962ff,#1565c0); border-color:#2962ff;">NEW GAME (3RD PERSON)</button>
                 <button id="start-btn-fs" class="btn">NEW GAME (FULLSCREEN)</button>
                 <div style="display: flex; gap: 10px;">
                     <button id="almanach-btn" class="btn" style="flex: 1;">ALMANACH</button>
@@ -164,6 +167,18 @@
                         <div class="vending-icon star-icon"></div>
                         <span class="vending-text">Mirror (1 rd)<br><small>40,000 pts</small></span>
                     </button>
+                    <button id="buy-molasses" class="vending-btn">
+                        <div class="vending-icon star-icon"></div>
+                        <span class="vending-text">Molasses (1 rd)<br><small>35,000 pts</small></span>
+                    </button>
+                    <button id="buy-hollow" class="vending-btn">
+                        <div class="vending-icon star-icon"></div>
+                        <span class="vending-text">Hollow Pts (1 rd)<br><small>50,000 pts</small></span>
+                    </button>
+                    <button id="buy-deadeye" class="vending-btn">
+                        <div class="vending-icon star-icon"></div>
+                        <span class="vending-text">Deadeye (1 rd)<br><small>30,000 pts</small></span>
+                    </button>
                     <button id="buy-skip" class="vending-btn">
                         <div class="vending-icon wings-icon"></div>
                         <span class="vending-text">Skip (+10R)<br><small>50,000 pts</small></span>
@@ -175,6 +190,7 @@
 
         <!-- The UI Layer (score, ammo, etc.) -->
         <div id="ui-layer">
+            <div id="rtx-badge" style="display: none;">◉ RTX ON — ULTRA 3D-HD</div>
             <div id="lives-display"></div>
             <div id="ammo-display">
                 <div class="bullet"></div>
@@ -205,7 +221,7 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <script src="globalScore.js"></script>
     
-    <script src="game.js?v=58"></script>
+    <script src="game.js?v=70"></script>
 </body>
 
 </html>
