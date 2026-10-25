@@ -24,7 +24,9 @@ async function fetchGlobalBest() {
     if (!db) return 0;
     try {
         const snapshot = await db.ref('scores/globalBest').once('value');
-        return snapshot.val() || 0;
+        const val = snapshot.val();
+        // Guard against junk written to the DB (string/other) so it can't break the game
+        return (typeof val === 'number' && val >= 0) ? val : 0;
     } catch (e) {
         console.error("Error fetching global best:", e);
         return 0;
@@ -32,11 +34,13 @@ async function fetchGlobalBest() {
 }
 
 async function updateGlobalBest(newScore) {
-    if (!db) return;
+    if (!db) return false;
     try {
-        const currentBest = await fetchGlobalBest();
-        if (newScore > currentBest) {
-            await db.ref('scores/globalBest').set(newScore);
+        const result = await db.ref('scores/globalBest').transaction((currentValue) => {
+            // Transaction with the server: no read-then-set race between players
+            return (newScore > (typeof currentValue === 'number' ? currentValue : 0)) ? newScore : undefined;
+        });
+        if (result.committed) {
             console.log("New Global High Score submitted!", newScore);
             return true;
         }

@@ -1,0 +1,39 @@
+{
+  "rules": {
+    "scores": {
+      ".read": true,
+      "globalBest": {
+        ".write": true,
+        ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000000"
+      }
+    },
+    "stats": {
+      ".read": true,
+      "bossKills": {
+        ".write": true,
+        ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000"
+      },
+      "bomberKills": {
+        ".write": true,
+        ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000"
+      }
+    },
+    "presence": {
+      ".read": true,
+      "$key": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['characterId', 'lastSeen'])",
+        "characterId": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3"
+        },
+        "lastSeen": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}
