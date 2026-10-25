@@ -56,7 +56,7 @@ const scoreDisplay = document.getElementById('score-display');
 const ammoDisplay = document.getElementById('ammo-display');
 
 // Cache version for all assets
-const CACHE_VERSION = 57;
+const CACHE_VERSION = 58;
 
 // Load Assets
 const duckImg1 = new Image();
@@ -556,6 +556,7 @@ let gameState = {
     buildingSnapshot: JSON.parse(localStorage.getItem('mallard_buildings') || '[]'),
     hillSnapshot: JSON.parse(localStorage.getItem('mallard_hills') || '[]'),
     blessingRounds: 0,
+    mirrorRounds: 0,
     perspectiveMode: false,
     stickFigures: [],
     lastStickFigureCheck: 0,
@@ -568,6 +569,7 @@ let gameState = {
     rainDrops: [],
     drivingMode: null,
     splatters: [],
+    feedPiles: [],
     thunderTimer: Math.random() * 5,
     thunderFlash: 0,
     introDuck: {
@@ -622,6 +624,8 @@ function resetGameState() {
     if (gameState.drivingMode) gameState.drivingMode.stopRumble();
     gameState.drivingMode = null;
     gameState.splatters = [];
+    gameState.feedPiles = [];
+    gameState.mirrorRounds = 0;
     gameState.boss = null;
     gameState.bossProjectiles = [];
     gameState.heavyBombers = [];
@@ -736,6 +740,7 @@ const vendingScreen = document.getElementById('vending-screen');
 const buyLifeBtn = document.getElementById('buy-life');
 const buyBlessingBtn = document.getElementById('buy-blessing');
 const buySkipBtn = document.getElementById('buy-skip');
+const buyMirrorBtn = document.getElementById('buy-mirror');
 const vendingContinueBtn = document.getElementById('vending-continue');
 
 const almanachScreen = document.getElementById('almanach-screen');
@@ -976,6 +981,27 @@ class Duck {
 
     update(dt) {
         if (!this.isDead) {
+            // Quake Feed: dive to a spilled feed pile and freeze while eating it
+            if (this.feedTarget) {
+                const pile = this.feedTarget;
+                if (pile.eaten || pile.y < pile.groundY) {
+                    this.feedTarget = null;
+                } else {
+                    const tx = pile.x - this.width / 2;
+                    const ty = pile.y - this.height / 2;
+                    this.x += Math.max(-160 * dt, Math.min(160 * dt, tx - this.x));
+                    this.y += Math.max(-160 * dt, Math.min(160 * dt, ty - this.y));
+                    this.x = Math.max(0, Math.min(canvas.width - this.width, this.x));
+                    if (Math.abs(tx - this.x) < 8 && Math.abs(ty - this.y) < 8) {
+                        this.feedTimer -= dt;
+                        if (this.feedTimer <= 0) {
+                            pile.eaten = true;
+                            this.feedTarget = null;
+                        }
+                    }
+                    return; // Feeding ducks don't fly or escape
+                }
+            }
             this.x += this.vx * dt;
             this.y += this.vy * dt;
 
@@ -1352,7 +1378,6 @@ class Splatter {
     update(dt) {
         this.life -= dt;
     }
-
     draw(ctx) {
         ctx.save();
         ctx.translate(this.x + this.size/2, this.y + this.size/2);
@@ -1369,6 +1394,53 @@ class Splatter {
         ctx.closePath();
         ctx.fill();
         ctx.restore();
+    }
+}
+
+// Quake Feed: a missed shot spills feed; ducks dive for it and freeze while eating
+class FeedPile {
+    constructor(x, y) {
+        this.x = Math.max(30, Math.min(canvas.width - 30, x));
+        this.y = Math.max(0, Math.min(y, canvas.height - (canvas.height * 0.12) - 10));
+        this.groundY = canvas.height - (canvas.height * 0.12) - 10; // grass level
+        this.vy = 0;
+        this.eaten = false;
+        this.grains = [];
+        for (let i = 0; i < 12; i++) {
+            this.grains.push({
+                dx: (Math.random() - 0.5) * 36,
+                dy: (Math.random() - 0.5) * 10,
+                r: 2 + Math.random() * 3
+            });
+        }
+    }
+
+    update(dt) {
+        if (this.eaten) return;
+        if (this.y < this.groundY) {
+            this.vy += 900 * dt;
+            this.y = Math.min(this.groundY, this.y + this.vy * dt);
+            return;
+        }
+        // Lure the nearest flying duck
+        for (const duck of gameState.ducks) {
+            if (duck.isDead || duck.feedTarget) continue;
+            const dist = Math.hypot(this.x - (duck.x + duck.width / 2), this.y - (duck.y + duck.height / 2));
+            if (dist < 260) {
+                duck.feedTarget = this;
+                duck.feedTimer = 1.0;
+                break;
+            }
+        }
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = '#d9a441';
+        for (const g of this.grains) {
+            ctx.beginPath();
+            ctx.ellipse(this.x + g.dx, this.y + g.dy + 6, g.r, g.r * 0.6, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 }
 
@@ -3883,6 +3955,29 @@ class Projectile {
                 p.fullyDead = true;
                 gameState.ammo++; // Successfully hit boss projectile grants another bullet
                 playSound(snickerBuffer, 0.5);
+                // Mirror Feathers: the destroyed projectile turns into a shard aimed back at the boss
+                if (gameState.mirrorRounds > 0 && gameState.boss && !gameState.boss.isDead && gameState.boss.isVulnerable) {
+                    const boss = gameState.boss;
+                    let details = null;
+                    if (boss.engines !== undefined) {
+                        const idx = boss.engines.findIndex(e => e);
+                        details = (idx >= 0) ? { hitEngineIndex: idx } : { hitHead: true };
+                    } else if (boss.segments) {
+                        const seg = boss.segments.body.alive ? 'body' : (boss.segments.head.alive ? 'head' : 'hands');
+                        details = { hitSegment: seg };
+                    }
+                    if (details) {
+                        const shard = new Projectile(p.x, p.y, boss.x + boss.width / 2, boss.y, null, false, null, null, null, false, boss, details, null);
+                        shard.timeTotal = 0.4; // Slower flight so the reflection is visible
+                        shard.isMirror = true;
+                        gameState.projectiles.push(shard);
+                        gameState.floatingTexts.push({
+                            x: p.x, y: p.y - 20,
+                            text: "MIRROR!", timer: 1.0, life: 1.0,
+                            color: "#ff00ff", size: 16
+                        });
+                    }
+                }
                 break;
             }
         }
@@ -4274,14 +4369,14 @@ class Projectile {
         let tailX = currentX - (targetX - this.startX) * ratio;
         let tailY = currentY - (targetY - this.startY) * ratio;
 
-        ctx.strokeStyle = this.isGreen ? "rgba(139, 195, 74, 1.0)" : "rgba(156, 39, 176, 1.0)";
+        ctx.strokeStyle = this.isMirror ? "rgba(255, 0, 255, 1.0)" : (this.isGreen ? "rgba(139, 195, 74, 1.0)" : "rgba(156, 39, 176, 1.0)");
         ctx.lineWidth = 6;
         ctx.beginPath();
         ctx.moveTo(tailX, tailY);
         ctx.lineTo(currentX, currentY);
         ctx.stroke();
 
-        ctx.fillStyle = this.isGreen ? "rgba(180, 240, 180, 1.0)" : "#ffffff";
+        ctx.fillStyle = this.isMirror ? "rgba(255, 120, 255, 1.0)" : (this.isGreen ? "rgba(180, 240, 180, 1.0)" : "#ffffff");
         ctx.beginPath();
         ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
         ctx.fill();
@@ -4345,6 +4440,12 @@ function handleShoot(event) {
         if (gameState.portraitClicks === 6) {
             // Spawn Hotdog at top middle of the screen
             gameState.hotdogs.push(new HotdogPowerUp(canvas.width / 2 - 30, 0, 500));
+        }
+
+        if (gameState.portraitClicks === 9) {
+            // Portrait hack: 9 clicks grants Mirror Feathers for one round
+            gameState.mirrorRounds = 1;
+            playSound(jingleBuffer, 0.8);
         }
 
         if (gameState.portraitClicks >= 13) {
@@ -4620,6 +4721,12 @@ function handleShoot(event) {
                     }
                 }
             }
+        }
+
+        // Quake Feed: a complete miss spills feed that ducks dive for
+        let shotMissed = !hitDrivingEnemy && !hitSun && !hitDuck && !hitTiger && !hitAirplane && !hitEagle && !hitBomber;
+        if (shotMissed && gameState.feedPiles.length < 8) {
+            gameState.feedPiles.push(new FeedPile(currentX, currentY));
         }
 
         gameState.projectiles.push(new Projectile(startX, startY, currentX, currentY, hitDuck, hitSun, hitAirplane, hitTiger, hitEagle, gameState.powerUpActive, hitBomber, hitDetails, hitDrivingEnemy));
@@ -5418,6 +5525,10 @@ function gameLoop(timestamp) {
         gameState.splatters = gameState.splatters.filter(s => s.life > 0);
     }
 
+    // Update feed piles
+    gameState.feedPiles.forEach(f => f.update(dt));
+    gameState.feedPiles = gameState.feedPiles.filter(f => !f.eaten);
+
     if (gameState.victoryTimer > 0) {
         let prevTimer = gameState.victoryTimer;
         gameState.victoryTimer -= dt;
@@ -6047,6 +6158,11 @@ function gameLoop(timestamp) {
             gameState.ammo = 20;
         } else {
             // Normal duck spawning logic would be here (usually handled in showShadowyScreen or similar)
+        }
+
+        // Mirror Feathers lasts for one round: decrement at each round start
+        if (gameState.mirrorRounds > 0) {
+            gameState.mirrorRounds--;
         }
 
         // Calculate bomber spawn chance: 2% base + 1% per 5 rounds
@@ -6795,6 +6911,9 @@ function gameLoop(timestamp) {
         gameState.splatters.forEach(s => s.draw(ctx));
     }
 
+    // Draw feed piles on the ground
+    gameState.feedPiles.forEach(f => f.draw(ctx));
+
     // --- Draw Floating Texts (ON TOP OF EVERYTHING) ---
     gameState.floatingTexts.forEach(ft => {
         let pSize = (ft.size / 10) || 3.5;
@@ -6970,6 +7089,7 @@ function showVendingScreen() {
     buyLifeBtn.disabled = gameState.score < 20000;
     buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
     buySkipBtn.disabled = gameState.score < 50000;
+    buyMirrorBtn.disabled = gameState.score < 40000;
 }
 
 buyLifeBtn.onclick = () => {
@@ -7011,6 +7131,20 @@ buySkipBtn.onclick = () => {
     }
 };
 
+buyMirrorBtn.onclick = () => {
+    if (gameState.score >= 40000) {
+        gameState.score -= 40000;
+        gameState.mirrorRounds = 1;
+        playSound(jingleBuffer);
+        updateUI();
+        // Update buttons
+        buyLifeBtn.disabled = gameState.score < 20000;
+        buyBlessingBtn.disabled = gameState.score < 30000 || gameState.blessingRounds > 0;
+        buySkipBtn.disabled = gameState.score < 50000;
+        buyMirrorBtn.disabled = gameState.score < 40000;
+    }
+};
+
 vendingContinueBtn.onclick = () => {
     vendingScreen.style.display = 'none';
     
@@ -7024,6 +7158,7 @@ vendingContinueBtn.onclick = () => {
         let currentLives = gameState.lives;
         let currentRound = gameState.round;
         let currentBlessing = gameState.blessingRounds;
+        let currentMirror = gameState.mirrorRounds;
         
         // Restore primitives
         Object.assign(gameState, savedGameState);
@@ -7033,6 +7168,7 @@ vendingContinueBtn.onclick = () => {
         gameState.lives = currentLives;
         gameState.round = currentRound;
         gameState.blessingRounds = currentBlessing;
+        gameState.mirrorRounds = currentMirror;
         
         savedGameState = null;
     }
@@ -7045,6 +7181,7 @@ vendingContinueBtn.onclick = () => {
     gameState.eagles = [];
     gameState.hotdogs = [];
     gameState.seekingMissiles = [];
+    gameState.feedPiles = [];
     gameState.floatingTexts = [];
 
     gameState.phase = 'SPAWN';
@@ -7726,11 +7863,13 @@ shadowyContinue.onclick = (e) => {
         // We want to keep the current round and max round increment if it just happened
         let currentRound = gameState.round;
         let currentMax = gameState.maxRoundReached;
+        let currentMirror = gameState.mirrorRounds;
         
         Object.assign(gameState, savedGameState);
         
         gameState.round = currentRound;
         gameState.maxRoundReached = currentMax;
+        gameState.mirrorRounds = currentMirror;
         savedGameState = null;
     }
     
@@ -7742,6 +7881,7 @@ shadowyContinue.onclick = (e) => {
     gameState.eagles = [];
     gameState.hotdogs = [];
     gameState.seekingMissiles = [];
+    gameState.feedPiles = [];
     gameState.floatingTexts = [];
     
     // Re-initialize state for the next round
